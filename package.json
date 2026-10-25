@@ -1,0 +1,25 @@
+{
+  "name": "mdvault",
+  "version": "1.0.0",
+  "description": "Cloudflare 上で動く個人用 Markdown ノートアプリ (Obsidian 風)",
+  "scripts": {
+    "vendor": "mkdir -p public/vendor && cp node_modules/marked/lib/marked.esm.js public/vendor/marked.js && cp node_modules/dompurify/dist/purify.es.mjs public/vendor/purify.js",
+    "db:migrate:local": "wrangler d1 migrations apply mdvault --local",
+    "db:migrate": "wrangler d1 migrations apply mdvault --remote",
+    "dev": "npm run vendor && wrangler dev",
+    "deploy": "npm run vendor && wrangler deploy",
+    "typecheck": "tsc"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261025.1",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.152.0"
+  },
+  "dependencies": {
+    "dompurify": "^3.4.17",
+    "marked": "^15.0.12"
+  },
+  "private": true
+}

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>mdvault</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <!-- デバイス承認画面 -->
+  <div id="gate" class="gate" hidden>
+    <div class="gate-card">
+      <h1>mdvault</h1>
+      <div id="gate-none" hidden>
+        <p>このデバイスはまだ登録されていません。</p>
+        <label>デバイス名 <input id="device-name" placeholder="例: 自宅PC"></label>
+        <button id="register-btn" class="primary">このデバイスを登録</button>
+      </div>
+      <div id="gate-pending" hidden>
+        <p>承認待ちです。承認済みのデバイスで「デバイス管理」を開き、次のコードで承認してください。</p>
+        <div id="pair-code" class="pair-code"></div>
+        <details>
+          <summary>最初の1台の場合（ブートストラップ）</summary>
+          <label>BOOTSTRAP_SECRET <input id="secret" type="password" autocomplete="off"></label>
+          <button id="bootstrap-btn" class="primary">承認する</button>
+        </details>
+      </div>
+      <p id="gate-error" class="error"></p>
+    </div>
+  </div>
+
+  <!-- メイン画面 -->
+  <div id="app" class="app" hidden>
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-head">
+        <button id="new-note" title="新規ノート (Alt+N)">＋ ノート</button>
+        <button id="open-switcher" title="クイックスイッチャー (Ctrl+P)">⌕</button>
+        <button id="open-devices" title="デバイス管理">⚙</button>
+      </div>
+      <input id="search" type="search" placeholder="全文検索…">
+      <div id="search-results" class="search-results" hidden></div>
+      <nav id="tree" class="tree"></nav>
+    </aside>
+
+    <main class="main">
+      <header class="toolbar">
+        <button id="toggle-sidebar" class="icon" title="サイドバー">☰</button>
+        <input id="title" class="title" spellcheck="false" placeholder="ノートを選択">
+        <span id="status" class="status"></span>
+        <div class="modes">
+          <button data-mode="edit">編集</button>
+          <button data-mode="split">分割</button>
+          <button data-mode="preview">閲覧</button>
+        </div>
+        <button id="delete-note" class="icon danger" title="削除">🗑</button>
+        <button id="toggle-right" class="icon" title="バックリンク">⇆</button>
+      </header>
+      <div id="workspace" class="workspace mode-split">
+        <div class="editor-wrap">
+          <textarea id="editor" spellcheck="false" placeholder="ここに Markdown を書く。[[ でリンク補完"></textarea>
+          <ul id="suggest" class="suggest" hidden></ul>
+        </div>
+        <article id="preview" class="preview markdown"></article>
+      </div>
+      <div id="empty" class="empty">
+        <p>ノートがありません。「＋ ノート」から作成してください。</p>
+      </div>
+    </main>
+
+    <aside id="rightbar" class="rightbar">
+      <h3>アウトライン</h3>
+      <ul id="outline" class="outline"></ul>
+      <h3>バックリンク</h3>
+      <ul id="backlinks" class="backlinks"></ul>
+    </aside>
+  </div>
+
+  <!-- クイックスイッチャー -->
+  <dialog id="switcher" class="switcher">
+    <input id="switcher-input" placeholder="ノート名を入力（Enter で開く / 新規作成）">
+    <ul id="switcher-list"></ul>
+  </dialog>
+
+  <!-- デバイス管理 -->
+  <dialog id="devices" class="devices">
+    <h2>デバイス管理</h2>
+    <table>
+      <thead><tr><th>名前</th><th>状態</th><th>最終アクセス</th><th></th></tr></thead>
+      <tbody id="device-list"></tbody>
+    </table>
+    <p class="hint">新しいデバイスを承認するには、そのデバイスに表示されている 6 桁のコードを入力します。</p>
+    <form method="dialog"><button>閉じる</button></form>
+  </dialog>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
