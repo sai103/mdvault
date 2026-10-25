@@ -12,6 +12,7 @@ let settings = {};
 
 const state = {
   notes: [],          // [{path, updated_at}]
+  attachments: [],    // [{path, content_type, size, created_at}]
   current: null,      // {path, content, updated_at|null}
   dirty: false,
   saveTimer: 0,
@@ -116,6 +117,22 @@ function rebuildResolveMap() {
   for (const n of state.notes) resolveMap.set(linkKey(n.path), n.path);
 }
 const resolveLink = (target) => resolveMap.get(linkKey(target.split("#")[0].trim())) ?? null;
+
+// 添付画像も Obsidian と同じく、ファイル名だけで参照できる（フルパスでも可）
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp|avif)$/i;
+let attachmentMap = new Map();
+let attachmentVersions = new Map();
+async function refreshAttachments() {
+  state.attachments = (await api("GET", "/api/attachments")).attachments;
+  attachmentVersions = new Map(state.attachments.map((a) => [a.path, a.created_at]));
+  attachmentMap = new Map();
+  for (const a of state.attachments) if (!attachmentMap.has(basename(a.path).toLowerCase())) attachmentMap.set(basename(a.path).toLowerCase(), a.path);
+  for (const a of state.attachments) attachmentMap.set(a.path.toLowerCase(), a.path);
+}
+const resolveAttachment = (target) => attachmentMap.get(target.replace(/^\.?\//, "").toLowerCase()) ?? null;
+// 同じ名前で上げ直したときに古い画像がキャッシュから表示されないよう、アップロード日時を付ける
+const attachmentUrl = (path) =>
+  "/api/attachment?path=" + encodeURIComponent(path) + (attachmentVersions.has(path) ? "&v=" + attachmentVersions.get(path) : "");
 
 async function refreshNotes() {
   state.notes = (await api("GET", "/api/notes")).notes;
@@ -278,17 +295,34 @@ marked.use({
       const m = /^!?\[\[([^\]\n]+?)\]\]/.exec(src);
       if (!m) return;
       const [target, alias] = m[1].split("|");
-      return { type: "wikilink", raw: m[0], target: target.trim(), text: (alias ?? target).trim() };
+      return { type: "wikilink", raw: m[0], target: target.trim(), text: (alias ?? target).trim(), alias: alias?.trim(), embed: m[0][0] === "!" };
     },
     renderer(t) {
-      const resolved = resolveLink(t.target);
       const esc = (s) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+      if (t.embed && IMAGE_EXT.test(t.target)) {
+        const path = resolveAttachment(t.target);
+        if (!path) return `<span class="missing-embed">画像が見つかりません: ${esc(t.target)}</span>`;
+        // ![[画像.png|300]] や ![[画像.png|300x200]] でサイズ指定（Obsidian と同じ）
+        const size = /^(\d+)(?:x(\d+))?$/.exec(t.alias ?? "");
+        const attrs = size ? ` width="${size[1]}"${size[2] ? ` height="${size[2]}"` : ""}` : "";
+        return `<img class="embed" src="${esc(attachmentUrl(path))}" alt="${esc(size || !t.alias ? basename(path) : t.alias)}" loading="lazy"${attrs}>`;
+      }
+      const resolved = resolveLink(t.target);
       return `<a class="wikilink${resolved ? "" : " unresolved"}" data-target="${esc(t.target)}" href="${resolved ? noteHref(resolved) : "#"}">${esc(t.text)}</a>`;
     },
   }],
 });
 
 DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+  // ![](attachments/画像.png) のような相対パスの画像は添付ファイルとして表示する
+  if (node.tagName === "IMG") {
+    const src = node.getAttribute("src") ?? "";
+    if (src && !/^(https?:|data:|\/api\/attachment\?)/i.test(src)) {
+      let target = src;
+      try { target = decodeURIComponent(src); } catch {}
+      node.setAttribute("src", attachmentUrl(resolveAttachment(target) ?? target.replace(/^\.?\//, "")));
+    }
+  }
   if (node.tagName === "A" && /^https?:/i.test(node.getAttribute("href") ?? "")) {
     node.setAttribute("target", "_blank");
     node.setAttribute("rel", "noopener noreferrer");
@@ -366,11 +400,12 @@ editor.addEventListener("input", () => {
 const suggest = { items: [], index: 0, start: -1 };
 function updateSuggest() {
   const before = editor.value.slice(0, editor.selectionStart);
-  const m = /\[\[([^\]\n|#]*)$/.exec(before);
+  const m = /(!?)\[\[([^\]\n|#]*)$/.exec(before);
   if (!m) return hideSuggest();
-  const q = m[1].toLowerCase();
-  suggest.start = editor.selectionStart - m[1].length;
-  suggest.items = state.notes.map((n) => n.path).filter((p) => fuzzy(stripMd(p).toLowerCase(), q)).slice(0, 8);
+  const q = m[2].toLowerCase();
+  suggest.start = editor.selectionStart - m[2].length;
+  const pool = m[1] ? state.attachments.map((a) => a.path) : state.notes.map((n) => n.path);
+  suggest.items = pool.filter((p) => fuzzy(displayName(p).toLowerCase(), q)).slice(0, 8);
   suggest.index = 0;
   if (!suggest.items.length) return hideSuggest();
   renderSuggest();
@@ -379,17 +414,23 @@ function renderSuggest() {
   $("#suggest").hidden = false;
   $("#suggest").replaceChildren(...suggest.items.map((p, i) => {
     const li = document.createElement("li");
-    li.textContent = stripMd(p);
+    li.textContent = displayName(p);
     li.className = i === suggest.index ? "active" : "";
     li.onmousedown = (e) => { e.preventDefault(); applySuggest(p); };
     return li;
   }));
 }
 function hideSuggest() { $("#suggest").hidden = true; suggest.items = []; }
-function applySuggest(path) {
-  const name = stripMd(basename(path));
+// ノートは拡張子なし、画像は拡張子つきで表示・挿入する
+const displayName = (p) => (IMAGE_EXT.test(p) ? p : stripMd(p));
+function linkText(path) {
+  const pool = IMAGE_EXT.test(path) ? state.attachments.map((a) => a.path) : state.notes.map((n) => n.path);
+  const name = displayName(basename(path));
   // basename が重複する場合はフルパスで書く
-  const text = state.notes.filter((n) => stripMd(basename(n.path)) === name).length > 1 ? stripMd(path) : name;
+  return pool.filter((p) => displayName(basename(p)) === name).length > 1 ? displayName(path) : name;
+}
+function applySuggest(path) {
+  const text = linkText(path);
   const after = editor.value.slice(editor.selectionStart);
   const close = after.startsWith("]]") ? "" : "]]";
   editor.setRangeText(text + close, suggest.start, editor.selectionStart, "end");
@@ -688,6 +729,113 @@ async function openTrash() {
 }
 
 $("#open-history").onclick = () => openHistory().catch((e) => alert(e.message));
+
+// ---------------- 画像の添付 ----------------
+
+const EXT_BY_TYPE = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp", "image/avif": "avif" };
+
+// アップロードして、カーソル位置に ![[ファイル名]] を挿入する
+async function uploadImages(files) {
+  if (!state.current) return alert("先にノートを開いてください");
+  const links = [];
+  for (const file of files) {
+    if (!EXT_BY_TYPE[file.type]) { alert(`「${file.name}」は対応していない形式です（PNG / JPEG / GIF / WebP / AVIF のみ）`); continue; }
+    if (file.size > settings.max_attachment_mb * 1024 * 1024) { alert(`「${file.name}」は大きすぎます（上限 ${settings.max_attachment_mb}MB）`); continue; }
+    setStatus(`アップロード中… ${file.name}`);
+    try {
+      // クリップボードからの貼り付けは "image.png" という名前になるので、Obsidian と同じ形式の名前を付ける
+      const name = !file.name || /^image\.\w+$/i.test(file.name) ? `Pasted image ${timestamp()}.${EXT_BY_TYPE[file.type]}` : file.name;
+      const res = await fetch("/api/attachments?name=" + encodeURIComponent(name), {
+        method: "POST", headers: { "x-mdv": "1", "content-type": file.type }, body: file,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      links.push(data.path);
+    } catch (e) {
+      alert(`「${file.name}」をアップロードできません: ${e.message}`);
+    }
+  }
+  setStatus("");
+  if (!links.length) return;
+  await refreshAttachments();
+  insertImageLinks(links);
+}
+
+function insertImageLinks(paths) {
+  editor.focus();
+  editor.setRangeText(paths.map((p) => `![[${linkText(p)}]]`).join("\n"), editor.selectionStart, editor.selectionEnd, "end");
+  editor.dispatchEvent(new Event("input"));
+}
+
+function timestamp() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
+const imageFiles = (list) => [...(list ?? [])].filter((f) => f.type.startsWith("image/"));
+editor.addEventListener("paste", (e) => {
+  const files = imageFiles(e.clipboardData?.files);
+  if (!files.length) return;
+  e.preventDefault();
+  uploadImages(files);
+});
+editor.addEventListener("dragover", (e) => {
+  if (e.dataTransfer?.types.includes("Files")) e.preventDefault();
+});
+editor.addEventListener("drop", (e) => {
+  const files = imageFiles(e.dataTransfer?.files);
+  if (!files.length) return;
+  e.preventDefault();
+  uploadImages(files);
+});
+$("#attach-image").onclick = () => (state.current ? $("#file-input").click() : alert("先にノートを開いてください"));
+$("#file-input").onchange = (e) => {
+  const files = [...e.target.files];
+  e.target.value = "";
+  if (files.length) uploadImages(files);
+};
+
+// 添付ファイルの一覧（どのノートからも参照されていない画像を探して削除できる）
+async function openAttachments() {
+  const { attachments } = await api("GET", "/api/attachments?refs=1");
+  const fmtSize = (n) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)}MB` : `${Math.ceil(n / 1024)}KB`);
+  $("#attachment-list").replaceChildren(...(attachments.length ? attachments.map((a) => {
+    const card = document.createElement("div");
+    card.className = "attachment-card";
+    const img = Object.assign(document.createElement("img"), { src: attachmentUrl(a.path), alt: basename(a.path), loading: "lazy" });
+    const name = Object.assign(document.createElement("div"), { className: "attachment-name", textContent: basename(a.path), title: a.path });
+    const meta = Object.assign(document.createElement("div"), {
+      className: "attachment-meta" + (a.refs ? "" : " unused"),
+      textContent: `${fmtSize(a.size)} · ${a.refs ? `${a.refs} 件のノートで使用` : "未使用"}`,
+    });
+    const actions = document.createElement("div");
+    actions.className = "attachment-actions";
+    if (state.current) {
+      const insert = Object.assign(document.createElement("button"), { textContent: "挿入" });
+      insert.onclick = () => { $("#attachments").close(); insertImageLinks([a.path]); };
+      actions.append(insert);
+    }
+    const del = Object.assign(document.createElement("button"), { textContent: "削除", className: "danger" });
+    del.onclick = async () => {
+      const msg = a.refs ? `「${basename(a.path)}」は ${a.refs} 件のノートで使われています。削除すると表示されなくなります。削除しますか？` : `「${basename(a.path)}」を削除しますか？`;
+      if (!confirm(msg)) return;
+      try {
+        await api("DELETE", "/api/attachments?path=" + encodeURIComponent(a.path));
+        await refreshAttachments();
+        renderPreview();
+        await openAttachments();
+      } catch (e) {
+        alert(e.message);
+      }
+    };
+    actions.append(del);
+    card.append(img, name, meta, actions);
+    return card;
+  }) : [Object.assign(document.createElement("p"), { className: "muted", textContent: "画像はまだありません。ノートに貼り付けるか、ドラッグ&ドロップで追加できます。" })]));
+  if (!$("#attachments").open) $("#attachments").showModal();
+}
+$("#open-attachments").onclick = () => openAttachments().catch((e) => alert(e.message));
 $("#open-trash").onclick = () => openTrash().catch((e) => alert(e.message));
 
 // ---------------- レイアウト ----------------
@@ -721,7 +869,7 @@ document.addEventListener("keydown", (e) => {
 async function startApp() {
   $("#app").hidden = false;
   setMode(store.get("mode", innerWidth < 800 ? "edit" : "split"));
-  await refreshNotes();
+  await Promise.all([refreshNotes(), refreshAttachments()]);
   const path = pathFromHash() ?? store.get("lastNote", null);
   if (path && (state.notes.some((n) => n.path === path) || pathFromHash())) {
     history.replaceState(null, "", noteHref(path));

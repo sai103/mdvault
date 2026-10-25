@@ -13,11 +13,16 @@ const SETTING_KEYS = [
   "MAX_LINKS_PER_NOTE",
   "REVISION_INTERVAL_MINUTES",
   "MAX_REVISIONS_PER_NOTE",
+  "MAX_ATTACHMENT_MB",
 ] as const;
 export type Settings = Record<(typeof SETTING_KEYS)[number], number>;
+// 文字列の設定値
+const TEXT_SETTING_KEYS = ["ATTACHMENT_FOLDER"] as const;
+type TextSettingKey = (typeof TEXT_SETTING_KEYS)[number];
 
-export interface Env extends Partial<Record<keyof Settings, unknown>> {
+export interface Env extends Partial<Record<keyof Settings | TextSettingKey, unknown>> {
   DB: D1Database;
+  FILES: R2Bucket;
   ASSETS: Fetcher;
   BOOTSTRAP_SECRET: string;
 }
@@ -60,6 +65,12 @@ export function settings(env: Env): Settings {
     s[key] = v;
   }
   return s;
+}
+
+export function textSetting(env: Env, key: TextSettingKey): string {
+  const v = env[key];
+  if (typeof v !== "string" || !v.trim()) throw new HttpError(500, `wrangler.jsonc の vars.${key} が未設定か不正です`);
+  return v.trim();
 }
 
 export async function body<T>(req: Request): Promise<T> {

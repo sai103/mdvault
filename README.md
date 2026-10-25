@@ -20,6 +20,7 @@ Cloudflare 側の構成・費用・デプロイ・運用については [docs/cl
 | 競合検出 | 別デバイスで先に更新されていたら、上書きか再読込かを選べる |
 | 履歴 | 🕘 から過去の版を表示・復元。編集前の内容（10分ごと）、他デバイスでの上書き前、復元前の内容を、ノートごとに最新50件まで保存 |
 | ゴミ箱 | ♻ から削除したノートを復元 |
+| 画像 | 貼り付け・ドラッグ&ドロップ・📎 で添付。`![[画像.png]]`（`\|300` で幅指定）と `![](attachments/画像.png)` の両方で表示。🖼 で一覧・挿入・削除（どのノートでも使われていない画像がわかる） |
 | モバイル | スマホ幅ではサイドバーがドロワーになる |
 
 ショートカット: `Ctrl/Cmd+P` 切替、`Ctrl/Cmd+S` 即時保存、`Ctrl/Cmd+E` 編集/閲覧、`Alt+N` 新規ノート
@@ -70,13 +71,13 @@ npm install
 # ローカル開発
 cp .dev.vars.example .dev.vars   # BOOTSTRAP_SECRET を設定
 npm run db:migrate:local
-npm run dev                      # http://localhost:8787
+npm run dev                      # http://localhost:8787（D1・R2 はローカルで再現される）
 ```
 
 ## 設定
 
-数値の設定はすべて `wrangler.jsonc` の `vars` にあります。変更したら `npm run deploy` で反映されます
-（ローカルでは `wrangler dev` を再起動）。値が未設定または不正（0 以下・数値でない）のときは、API がその設定名を含むエラーを返します。
+設定値はすべて `wrangler.jsonc` の `vars` にあります。変更したら `npm run deploy` で反映されます
+（ローカルでは `wrangler dev` を再起動）。値が未設定または不正（数値の設定は 0 以下・数値でない、文字列の設定は空）のときは、API がその設定名を含むエラーを返します。
 
 | 設定 | 既定値 | 内容 |
 | --- | --- | --- |
@@ -93,6 +94,8 @@ npm run dev                      # http://localhost:8787
 | `MAX_LINKS_PER_NOTE` | 500 | 1 ノートから記録する `[[リンク]]` の最大数 |
 | `REVISION_INTERVAL_MINUTES` | 10 | 通常の編集で履歴を残す最短間隔 |
 | `MAX_REVISIONS_PER_NOTE` | 50 | ノートごとに残す履歴の数 |
+| `MAX_ATTACHMENT_MB` | 10 | 添付画像 1 ファイルの最大サイズ（MB） |
+| `ATTACHMENT_FOLDER` | `"attachments"` | 添付画像を保存するフォルダ（文字列） |
 
 `BOOTSTRAP_SECRET` だけはシークレットなので `vars` ではなく `wrangler secret put`（ローカルは `.dev.vars`）で設定します。
 以下の説明に出てくる数値は既定値です。
@@ -103,7 +106,7 @@ Cloudflare へのデプロイ手順は [docs/cloudflare.md](docs/cloudflare.md#�
 
 ## アーキテクチャ
 
-バックエンドは Cloudflare Workers 上で動く **TypeScript（`src/` の 3 ファイル）** と、DB の **D1（SQLite）** だけです。
+バックエンドは Cloudflare Workers 上で動く **TypeScript（`src/` の 4 ファイル）** と、DB の **D1（SQLite）**、画像を置く **R2** だけです。
 Web フレームワークは使っていません。パスキーの検証には [SimpleWebAuthn](https://simplewebauthn.dev/) を使っています。常時起動のサーバーはなく、リクエストが来たときだけ処理が動きます。
 フロントエンドはビルド不要の素の JavaScript です。
 
@@ -121,7 +124,7 @@ Cloudflare Workers（mdvault）
                      ├─ ③ 承認済みでなければ 401（登録・状態確認・ブートストラップだけは通す）
                      ├─ ④ セッション Cookie を確認（src/passkey.ts）
                      │     ログインしていなければ 401（パスキーの登録・ログインだけは通す）
-                     └─ ⑤ 各 API の処理 → D1（SQLite）を読み書き
+                     └─ ⑤ 各 API の処理 → D1（SQLite）を読み書き。画像の本体は R2
 ```
 
 振り分けは `wrangler.jsonc` の `run_worker_first: ["/api/*"]` で決めています。
@@ -156,6 +159,8 @@ Cloudflare Workers（mdvault）
 | | `POST /api/note/rename` | リネーム |
 | リンク・検索 | `GET /api/backlinks` / `GET /api/search` | バックリンク・全文検索 |
 | 履歴 | `GET /api/revisions` / `GET /api/revision` / `POST /api/note/restore` / `GET /api/trash` | 版の一覧・中身・復元・ゴミ箱 |
+| 画像 | `GET /api/attachments`（`?refs=1` で参照数つき） / `POST /api/attachments?name=…` / `DELETE /api/attachments` | 一覧・アップロード（本文が画像そのもの）・削除 |
+| | `GET /api/attachment?path=…` | 画像の取得（`<img>` から読み込む） |
 
 GET 以外のリクエストには `x-mdv: 1` ヘッダーが必要です。
 
@@ -171,6 +176,7 @@ GET 以外のリクエストには `x-mdv: 1` ヘッダーが必要です。
 | `passkeys` | パスキーの公開鍵・署名カウンタ・名前・最終使用日時 |
 | `sessions` | ログイン中のセッション。トークンのハッシュ・デバイス・使ったパスキー・期限 |
 | `webauthn_challenges` | 発行中のチャレンジ（デバイス・用途ごとに 1 つ、使い捨て） |
+| `attachments` | 添付画像のパス・形式・サイズ・アップロード日時（本体は R2 に同じパスで保存） |
 
 定義は `migrations/` にあります。テーブルを変えるときは新しい番号の SQL ファイルを追加し、
 `npm run db:migrate:local`（本番は `npm run db:migrate`）で適用します。
@@ -184,6 +190,11 @@ GET 以外のリクエストには `x-mdv: 1` ヘッダーが必要です。
 - **検索は SQL の `LIKE`**: 全文検索用のインデックスは使っていないので、ノートが数千件を超えると遅くなる可能性がある。その場合は SQLite の全文検索機能（FTS5）への切り替えが候補
 - **Markdown の表示はブラウザ側**: marked で HTML にし、DOMPurify で無害化してから表示する（XSS 対策）
 - **セキュリティヘッダー**: 静的ファイルには `public/_headers`、API には Worker で CSP などを付けている。外部の画像（`https:`）は表示できるが、外部スクリプトは読み込めない
+- **画像は R2、一覧用のメタデータは D1**: R2 のキーと D1 の `path` は同じ。アップロード時は R2 に書いてから D1 に記録し、D1 に書けなければ R2 からも消す
+- **画像の形式はファイル先頭のバイト列で判定**: ファイル名や Content-Type は信用しない。PNG / JPEG / GIF / WebP / AVIF だけを受け付け、拡張子も実際の形式に合わせる。SVG はスクリプトを含められるので受け付けない
+- **画像もログイン中しか取得できない**: `<img>` の読み込みにも Cookie が付くので、ノートと同じチェックを通る。レスポンスには `sandbox` 付きの CSP を付けている
+- **画像の参照は Obsidian と同じ**: `![[ファイル名]]` はファイル名だけで探す（重複したらフルパス）。同名のファイルは `名前 1.png` のように番号を付けて保存する。「使用中かどうか」はファイル名が本文に含まれるかで判定する簡易的なもの
+- **画像の URL にはアップロード日時を付ける**（`&v=…`）: 同じ URL の中身は変わらないので、ブラウザに長期間キャッシュさせている
 - **セッションはデバイスとパスキーの両方に紐づく**: デバイスかパスキーのどちらかを削除すると、そのセッションも無効になる
 - **パスキーのユーザーは 1 人**: 個人用なのでユーザー ID は固定。同じ認証器に重複して登録されないよう、登録済みのパスキーは除外して作成する
 - **設定は `wrangler.jsonc` の `vars`、合言葉は `wrangler secret` で渡す**
@@ -193,6 +204,7 @@ GET 以外のリクエストには `x-mdv: 1` ヘッダーが必要です。
 ```
 src/index.ts            Worker の入口（ルーティング・デバイス認証・ノート API）
 src/passkey.ts          パスキーの登録・ログインとセッション
+src/attachments.ts      画像のアップロード・取得・削除（R2）
 src/common.ts           設定値の読み込み・Cookie・ハッシュなどの共通処理
 public/                 フロントエンド（ビルド不要の素の JS）
   index.html / app.js / style.css
@@ -200,7 +212,7 @@ public/                 フロントエンド（ビルド不要の素の JS）
   vendor/               marked / DOMPurify / SimpleWebAuthn（npm run vendor で node_modules からコピー。git 管理外）
 migrations/             D1 のスキーマ（番号順に適用）
 docs/cloudflare.md      Cloudflare 側の構成・費用・デプロイ・運用
-wrangler.jsonc          Worker・D1・設定値（vars）
+wrangler.jsonc          Worker・D1・R2・設定値（vars）
 .dev.vars.example       ローカル用シークレットの見本
 ```
 
@@ -211,7 +223,7 @@ wrangler.jsonc          Worker・D1・設定値（vars）
 
 ## MVP で未対応のもの / 次の候補
 
-- 画像・添付ファイル（R2 を追加する想定）
+- 画像以外の添付ファイル（PDF など）、画像の圧縮・リサイズ
 - リネーム時に他ノートの `[[リンク]]` を自動で書き換える
 - 空フォルダ、フォルダのリネーム、ドラッグ&ドロップ
 - タグ一覧、デイリーノート、グラフビュー

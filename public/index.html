@@ -45,6 +45,7 @@
       <div class="sidebar-head">
         <button id="new-note" title="新規ノート (Alt+N)">＋ ノート</button>
         <button id="open-switcher" title="クイックスイッチャー (Ctrl+P)">⌕</button>
+        <button id="open-attachments" title="画像">🖼</button>
         <button id="open-trash" title="ゴミ箱">♻</button>
         <button id="open-devices" title="デバイスとパスキー">⚙</button>
       </div>
@@ -63,6 +64,8 @@
           <button data-mode="split">分割</button>
           <button data-mode="preview">閲覧</button>
         </div>
+        <button id="attach-image" class="icon" title="画像を添付（貼り付け・ドラッグ&ドロップでも可）">📎</button>
+        <input id="file-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/avif" multiple hidden>
         <button id="open-history" class="icon" title="履歴">🕘</button>
         <button id="delete-note" class="icon danger" title="削除">🗑</button>
         <button id="toggle-right" class="icon" title="バックリンク">⇆</button>
@@ -124,6 +127,13 @@
         <button id="restore-revision" class="primary" hidden>この版に戻す</button>
       </div>
     </div>
+    <form method="dialog"><button>閉じる</button></form>
+  </dialog>
+
+  <!-- 画像 -->
+  <dialog id="attachments" class="attachments">
+    <h2>画像</h2>
+    <div id="attachment-list" class="attachment-list"></div>
     <form method="dialog"><button>閉じる</button></form>
   </dialog>
 

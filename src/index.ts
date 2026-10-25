@@ -2,6 +2,7 @@ import {
   DAY, HttpError, body, getCookie, json, randomHex, setCookie, settings, sha256, timingSafeEqual, type Device, type Env,
 } from "./common";
 import { currentSession, handlePasskeyApi, passkeyCount } from "./passkey";
+import { handleAttachmentApi } from "./attachments";
 
 const COOKIE = "mdv_device";
 
@@ -34,6 +35,7 @@ async function handleApi(req: Request, url: URL, env: Env): Promise<Response> {
         autosave_delay_ms: s.AUTOSAVE_DELAY_MS,
         approval_poll_seconds: s.APPROVAL_POLL_SECONDS,
         revision_interval_minutes: s.REVISION_INTERVAL_MINUTES,
+        max_attachment_mb: s.MAX_ATTACHMENT_MB,
       };
       if (device?.status === "approved") {
         // auth: ok = ログイン済み / login = パスキーでログインが必要 / setup = 最初のパスキーを登録する
@@ -61,6 +63,9 @@ async function handleApi(req: Request, url: URL, env: Env): Promise<Response> {
   if (passkeyResponse) return passkeyResponse;
 
   if (!session) throw new HttpError(401, "login required");
+
+  const attachmentResponse = await handleAttachmentApi(route, req, url, env);
+  if (attachmentResponse) return attachmentResponse;
 
   // ---- 承認済みデバイス + パスキーでログイン済み ----
   switch (route) {

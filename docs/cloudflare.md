@@ -11,16 +11,19 @@ mdvault は Cloudflare の Free プランだけで動くように作っていま
 | --- | --- | --- |
 | Workers | API の処理（`src/index.ts`） | 1 日 10 万リクエスト、1 リクエストあたり CPU 時間 10ms |
 | Workers 静的アセット | 画面ファイル（`public/`）の配信 | 無料 |
-| D1 | すべてのデータ（ノート・履歴・デバイス） | ストレージ 5GB、1 日あたり読み取り 500 万行・書き込み 10 万行 |
+| D1 | ノート・履歴・デバイス・パスキー・画像のメタデータ | ストレージ 5GB、1 日あたり読み取り 500 万行・書き込み 10 万行 |
+| R2 | 添付画像の本体（バケット `mdvault-files`） | ストレージ 10GB、1 か月あたり書き込み系 100 万回・読み取り系 1,000 万回、転送量は無料 |
 
-KV・R2・Durable Objects などは使っていません。画像の添付を作るときは R2 を追加する想定です。
+KV・Durable Objects などは使っていません。
 
 ## 費用の目安
 
 個人利用なら **0 円** の想定です。
 
 - 自動保存は入力が止まってから 1 回だけ（既定 0.8 秒後）なので、書き込み回数は少なく済みます
-- 無料枠を超えると、その日の残りはリクエストがエラーになります（自動で課金されることはありません）
+- Workers・D1 は、無料枠を超えるとその日の残りはリクエストがエラーになります（自動で課金されることはありません）
+- **R2 は無料枠を超えると課金されます**（ストレージは 1GB あたり月 0.015 ドル程度）。画像 1 枚あたりの上限は既定で 10MB（`MAX_ATTACHMENT_MB`）なので、10GB に届くのは数千枚規模です。使用量はダッシュボードの R2 の画面で確認できます
+- R2 を初めて使うときは、無料枠の範囲でも支払い方法（クレジットカードなど）の登録を求められる場合があります
 - 独自ドメインを使う場合は、ドメイン代（年 1,000〜2,000 円程度）だけかかります
 
 ### CPU 時間 10ms の制限について
@@ -30,7 +33,7 @@ Workers の無料プランは 1 リクエストあたりの CPU 時間が 10ms �
 
 > 10ms の制限はローカルの `wrangler dev` では再現されません。本番で CPU 時間超過のエラー（Error 1102）が出る場合は、ダッシュボードの Worker のログで確認してください。
 
-Worker のサイズは圧縮後約 130KB です（無料プランの上限は 3MB）。
+Worker のサイズは圧縮後約 130KB です（無料プランの上限は 3MB）。画像のアップロードは本体をそのまま R2 に保存するだけなので（形式の判定は先頭の数バイトだけ）、CPU 時間はほとんど使いません。
 
 ## デプロイ
 
@@ -39,6 +42,7 @@ npm install
 npx wrangler login
 npx wrangler d1 create mdvault
 # 出力された database_id を wrangler.jsonc の d1_databases[0].database_id に書く
+npx wrangler r2 bucket create mdvault-files   # 添付画像の保存先（名前を変えたら wrangler.jsonc の r2_buckets も合わせる）
 
 npm run db:migrate                         # 本番 D1 にテーブル作成
 openssl rand -base64 32                    # 長いランダム文字列を作る
@@ -50,12 +54,13 @@ npm run deploy
 
 - `database_id` は公開されても、それだけではデータを読み書きできません（Cloudflare アカウントの認証が必要）
 - 2 回目以降の更新は `npm run deploy` だけで反映されます。`migrations/` に新しいファイルが増えたときは、先に `npm run db:migrate` を実行してください
+- 画像の添付機能を追加する前にデプロイしていた場合は、`npx wrangler r2 bucket create mdvault-files` と `npm run db:migrate` を実行してから `npm run deploy` してください
 
 ### 設定値とシークレット
 
 | 種類 | 置き場所 | 反映方法 |
 | --- | --- | --- |
-| 数値の設定（[一覧](../README.md#設定)） | `wrangler.jsonc` の `vars` | `npm run deploy` |
+| 設定値（[一覧](../README.md#設定)） | `wrangler.jsonc` の `vars` | `npm run deploy` |
 | `BOOTSTRAP_SECRET` | Cloudflare のシークレット（ローカルは `.dev.vars`） | `npx wrangler secret put BOOTSTRAP_SECRET` |
 
 シークレットは Git に入らず、ダッシュボードでも値は表示されません。
@@ -70,8 +75,11 @@ npm run deploy
   npx wrangler d1 export mdvault --remote --output backup.sql
   ```
 
+  画像の本体は R2 にあるので、D1 のバックアップには含まれません。R2 には巻き戻し機能もありません。画像もバックアップしたい場合は、
+  ダッシュボードで R2 の API トークンを作り、S3 互換のツール（[rclone](https://rclone.org/) など）でバケットを手元にコピーしてください
+
 - **ログ**: `wrangler.jsonc` の `observability` が有効だと、リクエスト URL（ノートのパスや検索語）が Cloudflare のログに残ります。気になる場合は `false` にしてください
-- **データの保管**: D1 は保存時に暗号化されますが、Cloudflare からは読める状態です。完全に秘密にしたい場合は、ブラウザ側で暗号化する設計が必要になります（検索が難しくなります）
+- **データの保管**: D1・R2 は保存時に暗号化されますが、Cloudflare からは読める状態です。完全に秘密にしたい場合は、ブラウザ側で暗号化する設計が必要になります（検索が難しくなります）
 
 ### デバイスやパスキーをすべて失ったとき
 
@@ -91,7 +99,7 @@ npx wrangler d1 execute mdvault --remote --command "DELETE FROM passkeys; DELETE
 ```
 
 どちらも失ったときは、両方のコマンドを実行してから最初の 1 台と同じ手順（ブートストラップ → パスキー登録）でやり直します。
-ノートのデータは消えません。
+ノートと画像のデータは消えません。
 
 ## さらに強くアクセスを制限したい場合（任意）
 

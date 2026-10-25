@@ -35,7 +35,14 @@
     "MAX_NOTE_CHARS": 1000000,            // 1 ノートの最大文字数（D1 の 1 行の上限は 2MB）
     "MAX_LINKS_PER_NOTE": 500,            // 1 ノートから記録する [[リンク]] の最大数
     "REVISION_INTERVAL_MINUTES": 10,      // 通常の編集で履歴を残す最短間隔
-    "MAX_REVISIONS_PER_NOTE": 50          // ノートごとに残す履歴の数
+    "MAX_REVISIONS_PER_NOTE": 50,         // ノートごとに残す履歴の数
+    // ---- 添付ファイル（画像） ----
+    "MAX_ATTACHMENT_MB": 10,              // 1 ファイルの最大サイズ（MB）
+    "ATTACHMENT_FOLDER": "attachments"    // 画像を保存するフォルダ（ノートからは ![[ファイル名]] で参照）
   },
+  // 添付画像の保存先。`npx wrangler r2 bucket create mdvault-files` で作成する
+  "r2_buckets": [
+    { "binding": "FILES", "bucket_name": "mdvault-files" }
+  ],
   "observability": { "enabled": true }
 }
