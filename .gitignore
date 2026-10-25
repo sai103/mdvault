@@ -1,4 +1,32 @@
+# 依存パッケージ・ビルド・ローカルの実行環境
 node_modules/
 .wrangler/
-.dev.vars
+# npm run vendor で node_modules から生成する第三者のライブラリ（Git には入れない）
 public/vendor/
+coverage/
+
+# 秘密情報（BOOTSTRAP_SECRET など）。見本の .dev.vars.example だけは管理する
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+.env
+.env.*
+*.pem
+*.key
+
+# データのバックアップ（ノートの中身を含む）。migrations/ の SQL だけは管理する
+*.sql
+!migrations/*.sql
+*.sqlite
+*.sqlite3
+backup/
+backups/
+
+# スキャナーの生の出力（秘密情報や個人情報が混ざることがある）。要約は docs/security-review/ に書く
+security-reports/
+
+# 外部から受け取った資料（ライセンス未確認のもの）を置く場所
+third-party-docs/
+
+# Claude Code の個人設定（共有しない）
+.claude/settings.local.json

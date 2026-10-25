@@ -56,7 +56,11 @@ export async function handleAttachmentApi(route: string, req: Request, url: URL,
 
 async function upload(req: Request, url: URL, env: Env): Promise<Response> {
   const maxBytes = settings(env).MAX_ATTACHMENT_MB * 1024 * 1024;
-  if (Number(req.headers.get("content-length") ?? 0) > maxBytes) throw tooLarge(env);
+  // 大きすぎるものは本文を読まずに断る（読まなかった本文は明示的に破棄する）
+  if (Number(req.headers.get("content-length") ?? 0) > maxBytes) {
+    await req.body?.cancel();
+    throw tooLarge(env);
+  }
   const data = new Uint8Array(await req.arrayBuffer());
   if (data.byteLength > maxBytes) throw tooLarge(env);
   if (!data.byteLength) throw new HttpError(400, "ファイルが空です");

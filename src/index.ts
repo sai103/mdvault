@@ -1,7 +1,7 @@
 import {
   DAY, HttpError, body, getCookie, json, randomHex, setCookie, settings, sha256, timingSafeEqual, type Device, type Env,
 } from "./common";
-import { currentSession, handlePasskeyApi, passkeyCount } from "./passkey";
+import { currentSession, handlePasskeyApi, passkeyCount, requireRecentAuth } from "./passkey";
 import { handleAttachmentApi } from "./attachments";
 
 const COOKIE = "mdv_device";
@@ -13,7 +13,7 @@ export default {
     try {
       return await handleApi(req, url, env);
     } catch (e) {
-      if (e instanceof HttpError) return json({ error: e.message }, e.status);
+      if (e instanceof HttpError) return json({ error: e.message, ...(e.code ? { code: e.code } : {}) }, e.status);
       console.error(e);
       return json({ error: "internal error" }, 500);
     }
@@ -77,14 +77,17 @@ async function handleApi(req: Request, url: URL, env: Env): Promise<Response> {
       return json({ devices: results, current: device.id });
     }
     case "POST /api/devices/approve": {
+      requireRecentAuth(env, session);
       const { id, pair_code } = await body<{ id: string; pair_code: string }>(req);
+      // 期限切れ（PENDING_DEVICE_TTL_HOURS を過ぎた）承認待ちデバイスは承認できない
       const r = await env.DB.prepare(
-        "UPDATE devices SET status = 'approved', pair_code = NULL WHERE id = ? AND status = 'pending' AND pair_code = ?",
-      ).bind(id, pair_code).run();
+        "UPDATE devices SET status = 'approved', pair_code = NULL WHERE id = ? AND status = 'pending' AND pair_code = ? AND created_at >= ?",
+      ).bind(id, pair_code, Date.now() - settings(env).PENDING_DEVICE_TTL_HOURS * 60 * 60 * 1000).run();
       if (!r.meta.changes) throw new HttpError(400, "ペアリングコードが一致しません");
       return json({ ok: true });
     }
     case "DELETE /api/devices": {
+      requireRecentAuth(env, session);
       const id = url.searchParams.get("id") ?? "";
       await env.DB.batch([
         env.DB.prepare("DELETE FROM devices WHERE id = ?").bind(id),
@@ -235,7 +238,11 @@ async function bootstrap(req: Request, env: Env, device: Device | null): Promise
     await env.DB.prepare("INSERT INTO auth_failures (ts) VALUES (?)").bind(Date.now()).run();
     throw new HttpError(403, "シークレットが違います");
   }
-  await env.DB.prepare("UPDATE devices SET status = 'approved', pair_code = NULL WHERE id = ?").bind(device.id).run();
+  // 「承認済みが 0 台」の確認と承認を 1 つの SQL で行い、同時に 2 台がブートストラップしても 1 台しか通らないようにする
+  const r = await env.DB.prepare(
+    "UPDATE devices SET status = 'approved', pair_code = NULL WHERE id = ? AND NOT EXISTS (SELECT 1 FROM devices WHERE status = 'approved')",
+  ).bind(device.id).run();
+  if (!r.meta.changes) throw new HttpError(403, "承認済みのデバイスがあるため使えません。承認済みデバイスから承認してください");
   return json({ ok: true });
 }
 

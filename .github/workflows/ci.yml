@@ -1,0 +1,29 @@
+# push・プルリクエストのたびに、型チェック・セキュリティテスト・依存パッケージの脆弱性チェックを行う
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# 最小権限（リポジトリの読み取りだけ）
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx tsc
+      - run: npm test
+      # 本番で使う依存（marked・DOMPurify・SimpleWebAuthn）に既知の脆弱性があれば失敗させる
+      - run: npm run audit

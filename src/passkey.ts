@@ -16,19 +16,21 @@ const RP_NAME = "mdvault";
 const USER_ID = isoUint8Array.fromUTF8String("mdvault-owner");
 
 type Passkey = { id: string; public_key: string; counter: number; transports: string | null };
-export type Session = { token_hash: string; passkey_id: string };
+export type Session = { token_hash: string; passkey_id: string; verified_at: number };
 
 // ---------------- セッション ----------------
 
-// パスキーでログインしたセッション。デバイスに紐づき、パスキーが削除されると無効になる
+// パスキーでログインしたセッション。デバイスに紐づき、パスキーが削除されると無効になる。
+// 操作がなければ SESSION_IDLE_TIMEOUT_DAYS、使い続けていても SESSION_ABSOLUTE_TIMEOUT_DAYS で切れる
 export async function currentSession(req: Request, env: Env, device: Device): Promise<Session | null> {
   const token = getCookie(req, SESSION_COOKIE);
   if (!token) return null;
   const now = Date.now();
   const session = await env.DB.prepare(
-    `SELECT s.token_hash, s.passkey_id, s.expires_at FROM sessions s JOIN passkeys p ON p.id = s.passkey_id
-      WHERE s.token_hash = ? AND s.device_id = ? AND s.expires_at > ?`,
-  ).bind(await sha256(token), device.id, now).first<Session & { expires_at: number }>();
+    `SELECT s.token_hash, s.passkey_id, s.verified_at, s.expires_at FROM sessions s JOIN passkeys p ON p.id = s.passkey_id
+      WHERE s.token_hash = ? AND s.device_id = ? AND s.expires_at > ? AND s.created_at > ?`,
+  ).bind(await sha256(token), device.id, now, now - settings(env).SESSION_ABSOLUTE_TIMEOUT_DAYS * DAY)
+    .first<Session & { expires_at: number }>();
   if (!session) return null;
   // 使っている間は期限を延長する（一定期間操作がなければ再ログイン）
   const ttl = settings(env).SESSION_IDLE_TIMEOUT_DAYS * DAY;
@@ -38,15 +40,23 @@ export async function currentSession(req: Request, env: Env, device: Device): Pr
   return session;
 }
 
-async function createSession(req: Request, env: Env, device: Device, passkeyId: string): Promise<string> {
+// ログインのたびに新しいトークンを発行し、それまでのセッションは消す（セッション固定攻撃の対策）
+async function createSession(req: Request, env: Env, device: Device, passkeyId: string, previous: Session | null): Promise<string> {
   const token = randomHex(32);
   const now = Date.now();
   await env.DB.batch([
-    env.DB.prepare("DELETE FROM sessions WHERE expires_at < ?").bind(now),
-    env.DB.prepare("INSERT INTO sessions (token_hash, device_id, passkey_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?)")
-      .bind(await sha256(token), device.id, passkeyId, now, now + settings(env).SESSION_IDLE_TIMEOUT_DAYS * DAY),
+    env.DB.prepare("DELETE FROM sessions WHERE expires_at < ? OR token_hash = ?").bind(now, previous?.token_hash ?? ""),
+    env.DB.prepare("INSERT INTO sessions (token_hash, device_id, passkey_id, created_at, expires_at, verified_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .bind(await sha256(token), device.id, passkeyId, now, now + settings(env).SESSION_IDLE_TIMEOUT_DAYS * DAY, now),
   ]);
   return setCookie(req, env, SESSION_COOKIE, token);
+}
+
+// デバイスの承認・削除、パスキーの追加・削除の前に呼ぶ。セッションを盗まれても、これらの操作で居座られないようにする
+export function requireRecentAuth(env: Env, session: Session): void {
+  if (Date.now() - session.verified_at > settings(env).REAUTH_WINDOW_MINUTES * 60 * 1000) {
+    throw new HttpError(403, "この操作の前に、パスキーで本人確認してください", "reauth_required");
+  }
 }
 
 export async function passkeyCount(env: Env): Promise<number> {
@@ -105,7 +115,7 @@ export async function handlePasskeyApi(
         Date.now(),
       ).run();
       // 初回登録ならそのままログイン状態にする
-      return json({ ok: true }, 200, session ? {} : { "set-cookie": await createSession(req, env, device, credential.id) });
+      return json({ ok: true }, 200, session ? {} : { "set-cookie": await createSession(req, env, device, credential.id, null) });
     }
 
     case "POST /api/passkey/login/options": {
@@ -143,7 +153,7 @@ export async function handlePasskeyApi(
       if (!result.verified) throw new HttpError(400, "パスキーを検証できません");
       await env.DB.prepare("UPDATE passkeys SET counter = ?, last_used_at = ? WHERE id = ?")
         .bind(result.authenticationInfo.newCounter, Date.now(), passkey.id).run();
-      return json({ ok: true }, 200, { "set-cookie": await createSession(req, env, device, passkey.id) });
+      return json({ ok: true }, 200, { "set-cookie": await createSession(req, env, device, passkey.id, session) });
     }
 
     case "POST /api/logout": {
@@ -160,6 +170,7 @@ export async function handlePasskeyApi(
       return json({ passkeys: results, current: session.passkey_id });
     }
     case "DELETE /api/passkeys": {
+      requireRecentAuth(env, session);
       // 最後の 1 つを消すと、承認済みデバイスなら誰でも新しいパスキーを登録できてしまうので禁止
       if ((await passkeyCount(env)) <= 1) throw new HttpError(409, "最後のパスキーは削除できません");
       const id = url.searchParams.get("id") ?? "";
@@ -173,8 +184,10 @@ export async function handlePasskeyApi(
   return null;
 }
 
+// 最初のパスキーは承認済みデバイスなら登録できる。2 つ目以降はログイン中かつ最近本人確認したときだけ
 async function requireSessionOrNoPasskeys(env: Env, session: Session | null): Promise<void> {
-  if (!session && (await passkeyCount(env)) > 0) throw new HttpError(401, "パスキーでログインしてください");
+  if (session) return requireRecentAuth(env, session);
+  if ((await passkeyCount(env)) > 0) throw new HttpError(401, "パスキーでログインしてください");
 }
 
 async function saveChallenge(env: Env, device: Device, kind: "register" | "login", challenge: string): Promise<void> {

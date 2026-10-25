@@ -22,7 +22,7 @@ const state = {
 
 // ---------------- API ----------------
 
-async function api(method, path, body) {
+async function api(method, path, body, retried = false) {
   const res = await fetch(path, {
     method,
     headers: { "x-mdv": "1", ...(body ? { "content-type": "application/json" } : {}) },
@@ -31,6 +31,11 @@ async function api(method, path, body) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     if (res.status === 401) location.reload();
+    // デバイスの承認やパスキーの追加などの前は、パスキーでの本人確認を求められる
+    if (data.code === "reauth_required" && !retried) {
+      await loginWithPasskey();
+      return api(method, path, body, true);
+    }
     throw Object.assign(new Error(data.error || res.statusText), { status: res.status });
   }
   return data;

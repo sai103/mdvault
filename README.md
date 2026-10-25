@@ -5,7 +5,8 @@ Cloudflare 上で動く、個人用の Obsidian 風 Markdown ノートアプリ�
 - **Cloudflare Workers + 静的アセット + D1** だけで構成。個人利用なら無料枠に収まります
 - **デバイス承認 + パスキー**: 承認済みのデバイス（ブラウザ）で、パスキー（指紋・顔認証・PIN）でログインしたときだけノートを読み書きできます
 
-Cloudflare 側の構成・費用・デプロイ・運用については [docs/cloudflare.md](docs/cloudflare.md) を参照してください。
+Cloudflare 側の構成・費用・デプロイ・運用については [docs/cloudflare.md](docs/cloudflare.md)、
+セキュリティの前提・権限表・検査方法については [docs/security.md](docs/security.md) を参照してください。
 
 ## 機能（MVP）
 
@@ -50,11 +51,13 @@ Cloudflare 側の構成・費用・デプロイ・運用については [docs/cl
 2. **2 台目以降のデバイス**: 承認されるとパスキーのログイン画面が出る。iCloud キーチェーンや Google パスワードマネージャーで
    同期されたパスキー、または別の端末（QR コード）や USB セキュリティキーでログインする。
    承認されただけのデバイスは、新しいパスキーを登録できない
-3. ログインすると、デバイスに紐づいたセッション Cookie（`mdv_session`）が発行される。
-   **14 日間操作がなければ再ログイン**が必要（使っている間は自動で延長）
-4. 「⚙ デバイスとパスキー」でパスキーの追加・削除、ログアウトができる。
+3. ログインすると、デバイスに紐づいたセッション Cookie が発行される（ログインのたびに新しいものに替わる）。
+   **14 日間操作がなければ再ログイン**が必要（使っている間は自動で延長）。使い続けていても **90 日で再ログイン**
+4. **デバイスの承認・削除、パスキーの追加・削除**の前には、もう一度パスキーでの本人確認を求める（直近 5 分以内に確認していれば不要）。
+   Cookie を盗まれても、自分のパスキーやデバイスを追加されて居座られないようにするため
+5. 「⚙ デバイスとパスキー」でパスキーの追加・削除、ログアウトができる。
    パスキーを削除すると、そのパスキーでログインしていたセッションはすべて無効になる。**最後の 1 つは削除できない**
-5. パスキーは「本人確認あり」（指紋・顔認証・PIN）を必須にしている。サーバーには公開鍵だけが保存される
+6. パスキーは「本人確認あり」（指紋・顔認証・PIN）を必須にしている。サーバーには公開鍵だけが保存される
 
 デバイスやパスキーをすべて失ったときの復旧方法は [docs/cloudflare.md](docs/cloudflare.md#デバイスやパスキーをすべて失ったとき) を参照してください。
 
@@ -62,6 +65,8 @@ Cloudflare 側の構成・費用・デプロイ・運用については [docs/cl
 
 `/api/*` はすべて Worker を通り、承認済みデバイスの Cookie と有効なセッションの両方がなければ 401 を返します。
 HTML/JS/CSS 自体は公開されていますが、ノートのデータは返しません。
+Cookie は HTTPS では `__Host-mdv_device` / `__Host-mdv_session`（`HttpOnly; Secure; SameSite=Strict`）、ローカル開発の HTTP では `mdv_device` / `mdv_session` です。
+どの状態で何ができるかの一覧（権限表）は [docs/security.md](docs/security.md#4-権限表) にあります。
 
 ## セットアップ
 
@@ -72,7 +77,14 @@ npm install
 cp .dev.vars.example .dev.vars   # BOOTSTRAP_SECRET を設定
 npm run db:migrate:local
 npm run dev                      # http://localhost:8787（D1・R2 はローカルで再現される）
+
+# テスト・検査（push すると GitHub Actions でも実行される）
+npx tsc                          # 型チェック
+npm test                         # 認可・セキュリティのテスト（Workers と同じランタイムで実行）
+npm run audit                    # 本番で使う依存パッケージの既知の脆弱性
 ```
+
+Claude Code では `/mdvault-security-review` でこのアプリ向けのセキュリティレビューを実行できます（手順は `.claude/skills/mdvault-security-review/SKILL.md`）。
 
 ## 設定
 
@@ -88,6 +100,8 @@ npm run dev                      # http://localhost:8787（D1・R2 はローカ�
 | `BOOTSTRAP_MAX_FAILURES_PER_HOUR` | 10 | ブートストラップの失敗がこの回数に達すると 1 時間ロック |
 | `APPROVAL_POLL_SECONDS` | 5 | 承認待ち画面が承認状態を確認する間隔 |
 | `SESSION_IDLE_TIMEOUT_DAYS` | 14 | パスキーでログインした後、この日数操作がなければ再ログイン |
+| `SESSION_ABSOLUTE_TIMEOUT_DAYS` | 90 | 使い続けていても、ログインからこの日数で再ログイン |
+| `REAUTH_WINDOW_MINUTES` | 5 | デバイスの承認・削除、パスキーの追加・削除の前に求める本人確認の有効時間 |
 | `PASSKEY_CHALLENGE_TTL_SECONDS` | 300 | パスキーの登録・ログイン開始から完了までの制限時間 |
 | `AUTOSAVE_DELAY_MS` | 800 | 入力が止まってから自動保存するまでの時間 |
 | `MAX_NOTE_CHARS` | 1000000 | 1 ノートの最大文字数（D1 の 1 行の上限は 2MB） |
@@ -163,6 +177,7 @@ Cloudflare Workers（mdvault）
 | | `GET /api/attachment?path=…` | 画像の取得（`<img>` から読み込む） |
 
 GET 以外のリクエストには `x-mdv: 1` ヘッダーが必要です。
+本人確認が必要な操作で確認から時間がたっていると `403` と `{"code": "reauth_required"}` を返し、画面がパスキーでの確認を求めてから同じリクエストをやり直します。
 
 ### DB のテーブル
 
@@ -211,7 +226,12 @@ public/                 フロントエンド（ビルド不要の素の JS）
   _headers              静的ファイルに付けるセキュリティヘッダー
   vendor/               marked / DOMPurify / SimpleWebAuthn（npm run vendor で node_modules からコピー。git 管理外）
 migrations/             D1 のスキーマ（番号順に適用）
+tests/                  認可・セキュリティのテスト（vitest + @cloudflare/vitest-pool-workers）
 docs/cloudflare.md      Cloudflare 側の構成・費用・デプロイ・運用
+docs/security.md        セキュリティの前提・脅威モデル・権限表・対策・検査方法・残存リスク
+docs/security-review/   セキュリティレビューの記録
+.claude/skills/         Claude Code 用のスキル（mdvault-security-review）
+.github/workflows/      CI（型チェック・テスト・依存パッケージの脆弱性チェック）
 wrangler.jsonc          Worker・D1・R2・設定値（vars）
 .dev.vars.example       ローカル用シークレットの見本
 ```

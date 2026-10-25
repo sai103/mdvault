@@ -29,6 +29,8 @@
     "BOOTSTRAP_MAX_FAILURES_PER_HOUR": 10, // ブートストラップの失敗がこの回数に達すると 1 時間ロック
     "APPROVAL_POLL_SECONDS": 5,           // 承認待ち画面が承認状態を確認する間隔
     "SESSION_IDLE_TIMEOUT_DAYS": 14,      // パスキーでログインした後、この日数操作がなければ再ログイン
+    "SESSION_ABSOLUTE_TIMEOUT_DAYS": 90,  // 使い続けていても、ログインからこの日数で再ログイン
+    "REAUTH_WINDOW_MINUTES": 5,           // デバイスの承認・削除、パスキーの追加・削除の前に求める本人確認の有効時間
     "PASSKEY_CHALLENGE_TTL_SECONDS": 300, // パスキーの登録・ログイン開始から完了までの制限時間
     // ---- ノート ----
     "AUTOSAVE_DELAY_MS": 800,             // 入力が止まってから自動保存するまでの時間

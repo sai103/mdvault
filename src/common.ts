@@ -7,6 +7,8 @@ const SETTING_KEYS = [
   "BOOTSTRAP_MAX_FAILURES_PER_HOUR",
   "APPROVAL_POLL_SECONDS",
   "SESSION_IDLE_TIMEOUT_DAYS",
+  "SESSION_ABSOLUTE_TIMEOUT_DAYS",
+  "REAUTH_WINDOW_MINUTES",
   "PASSKEY_CHALLENGE_TTL_SECONDS",
   "AUTOSAVE_DELAY_MS",
   "MAX_NOTE_CHARS",
@@ -41,10 +43,12 @@ const SECURITY_HEADERS = {
   "x-content-type-options": "nosniff",
   "referrer-policy": "no-referrer",
   "content-security-policy": "default-src 'none'; frame-ancestors 'none'",
+  "strict-transport-security": "max-age=31536000",
 };
 
 export class HttpError extends Error {
-  constructor(public status: number, message: string) {
+  // code は画面側で処理を分けたいエラーにだけ付ける（例: reauth_required）
+  constructor(public status: number, message: string, public code?: string) {
     super(message);
   }
 }
@@ -81,7 +85,11 @@ export async function body<T>(req: Request): Promise<T> {
   }
 }
 
-export function getCookie(req: Request, name: string): string | null {
+// HTTPS では __Host- を付ける（Secure・Path=/・Domain なしが強制され、他のサブドメインから Cookie を上書きされない）
+const cookieName = (req: Request, name: string) => (new URL(req.url).protocol === "https:" ? `__Host-${name}` : name);
+
+export function getCookie(req: Request, baseName: string): string | null {
+  const name = cookieName(req, baseName);
   const header = req.headers.get("cookie") ?? "";
   for (const part of header.split(";")) {
     const [k, ...v] = part.trim().split("=");
@@ -91,10 +99,10 @@ export function getCookie(req: Request, name: string): string | null {
 }
 
 // 有効期限はサーバー側で管理するので、Cookie 自体は長めに持たせる（maxAgeSeconds = 0 で削除）
-export function setCookie(req: Request, env: Env, name: string, value: string, maxAgeSeconds?: number): string {
+export function setCookie(req: Request, env: Env, baseName: string, value: string, maxAgeSeconds?: number): string {
   const maxAge = maxAgeSeconds ?? Math.round(settings(env).COOKIE_MAX_AGE_DAYS * DAY / 1000);
   const secure = new URL(req.url).protocol === "https:" ? "; Secure" : "";
-  return `${name}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secure}`;
+  return `${cookieName(req, baseName)}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secure}`;
 }
 
 export function randomHex(bytes: number): string {
