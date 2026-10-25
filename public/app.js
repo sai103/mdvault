@@ -42,6 +42,7 @@ async function boot() {
   $("#gate-pending").hidden = dev.status !== "pending";
   if (dev.status === "pending") {
     $("#pair-code").textContent = dev.pair_code;
+    $("#bootstrap-section").hidden = !dev.bootstrap_available;
     setTimeout(boot, 5000); // 他デバイスでの承認を待つ
   }
 }
@@ -434,12 +435,14 @@ $("#title").addEventListener("change", async () => {
 
 $("#delete-note").onclick = async () => {
   const cur = state.current;
-  if (!cur || !confirm(`「${stripMd(cur.path)}」を削除しますか？`)) return;
+  if (!cur || !confirm(`「${stripMd(cur.path)}」を削除しますか？（ゴミ箱から復元できます）`)) return;
   clearTimeout(state.saveTimer);
   state.dirty = false;
   await api("DELETE", "/api/note?path=" + encodeURIComponent(cur.path));
   state.current = null;
   $("#workspace").hidden = true;
+  $("#outline").replaceChildren();
+  $("#backlinks").replaceChildren();
   $("#title").value = "";
   await refreshNotes();
   $("#empty").hidden = false;
@@ -522,13 +525,12 @@ $("#open-switcher").onclick = openSwitcher;
 
 async function openDevices() {
   const { devices, current } = await api("GET", "/api/devices");
-  const fmt = (t) => new Date(t).toLocaleString();
   $("#device-list").replaceChildren(...devices.map((d) => {
     const tr = document.createElement("tr");
     const name = Object.assign(document.createElement("td"), { textContent: d.name + (d.id === current ? "（このデバイス）" : "") });
     name.title = d.user_agent ?? "";
     const status = Object.assign(document.createElement("td"), { textContent: d.status === "approved" ? "承認済み" : "承認待ち" });
-    const seen = Object.assign(document.createElement("td"), { textContent: fmt(d.last_seen_at) });
+    const seen = Object.assign(document.createElement("td"), { textContent: fmtTime(d.last_seen_at) });
     const actions = document.createElement("td");
     if (d.status === "pending") {
       const input = Object.assign(document.createElement("input"), { placeholder: "6桁コード", inputMode: "numeric", maxLength: 6, className: "code" });
@@ -550,6 +552,69 @@ async function openDevices() {
   if (!$("#devices").open) $("#devices").showModal();
 }
 $("#open-devices").onclick = () => openDevices().catch((e) => alert(e.message));
+
+// ---------------- 履歴・ゴミ箱 ----------------
+
+const fmtTime = (t) => new Date(t).toLocaleString();
+const REASONS = { edit: "編集前", overwrite: "他デバイスで上書きされた版", delete: "削除時", restore: "復元前" };
+
+async function openHistory() {
+  const cur = state.current;
+  if (!cur) return;
+  await flushSave();
+  const { revisions } = await api("GET", "/api/revisions?path=" + encodeURIComponent(cur.path));
+  $("#revision-preview").replaceChildren(Object.assign(document.createElement("p"), {
+    className: "muted", textContent: revisions.length ? "左の一覧から版を選んでください" : "まだ履歴がありません（編集すると10分ごとに記録されます）",
+  }));
+  $("#restore-revision").hidden = true;
+  $("#revision-list").replaceChildren(...revisions.map((r) => {
+    const li = document.createElement("li");
+    li.append(fmtTime(r.saved_at), Object.assign(document.createElement("small"), { textContent: `${REASONS[r.reason] ?? r.reason} · ${r.size}文字` }));
+    li.onclick = async () => {
+      $("#revision-list").querySelectorAll("li").forEach((x) => x.classList.toggle("active", x === li));
+      const rev = await api("GET", "/api/revision?id=" + r.id);
+      $("#revision-preview").innerHTML = DOMPurify.sanitize(marked.parse(rev.content));
+      $("#restore-revision").hidden = false;
+      $("#restore-revision").onclick = async () => {
+        if (!confirm("この版に戻しますか？（現在の内容も履歴に残ります）")) return;
+        await restore(r.id);
+        $("#history").close();
+      };
+    };
+    return li;
+  }));
+  $("#history").showModal();
+}
+
+async function restore(id) {
+  await flushSave();
+  const { path } = await api("POST", "/api/note/restore", { id });
+  await refreshNotes();
+  state.current = null;
+  history.replaceState(null, "", noteHref(path));
+  await openNote(path);
+}
+
+async function openTrash() {
+  const { trash } = await api("GET", "/api/trash");
+  $("#trash-list").replaceChildren(...(trash.length ? trash.map((t) => {
+    const tr = document.createElement("tr");
+    const ok = Object.assign(document.createElement("button"), { textContent: "復元", className: "primary" });
+    ok.onclick = () => restore(t.id).then(() => $("#trash").close(), (e) => alert(e.message));
+    const actions = document.createElement("td");
+    actions.append(ok);
+    tr.append(
+      Object.assign(document.createElement("td"), { textContent: stripMd(t.path) }),
+      Object.assign(document.createElement("td"), { textContent: fmtTime(t.deleted_at) }),
+      actions,
+    );
+    return tr;
+  }) : [Object.assign(document.createElement("tr"), { innerHTML: '<td colspan="3" class="muted">空です</td>' })]));
+  if (!$("#trash").open) $("#trash").showModal();
+}
+
+$("#open-history").onclick = () => openHistory().catch((e) => alert(e.message));
+$("#open-trash").onclick = () => openTrash().catch((e) => alert(e.message));
 
 // ---------------- レイアウト ----------------
 

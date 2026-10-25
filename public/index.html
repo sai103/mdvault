@@ -20,7 +20,7 @@
       <div id="gate-pending" hidden>
         <p>承認待ちです。承認済みのデバイスで「デバイス管理」を開き、次のコードで承認してください。</p>
         <div id="pair-code" class="pair-code"></div>
-        <details>
+        <details id="bootstrap-section">
           <summary>最初の1台の場合（ブートストラップ）</summary>
           <label>BOOTSTRAP_SECRET <input id="secret" type="password" autocomplete="off"></label>
           <button id="bootstrap-btn" class="primary">承認する</button>
@@ -36,6 +36,7 @@
       <div class="sidebar-head">
         <button id="new-note" title="新規ノート (Alt+N)">＋ ノート</button>
         <button id="open-switcher" title="クイックスイッチャー (Ctrl+P)">⌕</button>
+        <button id="open-trash" title="ゴミ箱">♻</button>
         <button id="open-devices" title="デバイス管理">⚙</button>
       </div>
       <input id="search" type="search" placeholder="全文検索…">
@@ -53,6 +54,7 @@
           <button data-mode="split">分割</button>
           <button data-mode="preview">閲覧</button>
         </div>
+        <button id="open-history" class="icon" title="履歴">🕘</button>
         <button id="delete-note" class="icon danger" title="削除">🗑</button>
         <button id="toggle-right" class="icon" title="バックリンク">⇆</button>
       </header>
@@ -90,6 +92,29 @@
       <tbody id="device-list"></tbody>
     </table>
     <p class="hint">新しいデバイスを承認するには、そのデバイスに表示されている 6 桁のコードを入力します。</p>
+    <form method="dialog"><button>閉じる</button></form>
+  </dialog>
+
+ <!-- 履歴 -->
+  <dialog id="history" class="history">
+    <h2>履歴</h2>
+    <div class="history-body">
+      <ul id="revision-list" class="revision-list"></ul>
+      <div class="revision-view">
+        <article id="revision-preview" class="markdown"></article>
+        <button id="restore-revision" class="primary" hidden>この版に戻す</button>
+      </div>
+    </div>
+    <form method="dialog"><button>閉じる</button></form>
+  </dialog>
+
+  <!-- ゴミ箱 -->
+  <dialog id="trash" class="devices">
+    <h2>ゴミ箱</h2>
+    <table>
+      <thead><tr><th>ノート</th><th>削除日時</th><th></th></tr></thead>
+      <tbody id="trash-list"></tbody>
+    </table>
     <form method="dialog"><button>閉じる</button></form>
   </dialog>
 

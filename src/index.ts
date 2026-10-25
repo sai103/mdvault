@@ -17,6 +17,15 @@ const COOKIE_MAX_AGE = 400 * 24 * 60 * 60; // ブラウザの上限 (400日)
 const MAX_PENDING = 10;
 const PENDING_TTL = 24 * 60 * 60 * 1000;
 const MAX_FAILURES_PER_HOUR = 10;
+const DEVICE_TTL = 90 * 24 * 60 * 60 * 1000; // この期間使われなかった承認済みデバイスは削除
+const REVISION_INTERVAL = 10 * 60 * 1000; // 通常の編集で版を残す最短間隔
+const MAX_REVISIONS = 50; // ノートごとに残す版の数
+
+const SECURITY_HEADERS = {
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "no-referrer",
+  "content-security-policy": "default-src 'none'; frame-ancestors 'none'",
+};
 
 class HttpError extends Error {
   constructor(public status: number, message: string) {
@@ -27,7 +36,7 @@ class HttpError extends Error {
 const json = (data: unknown, status = 200, headers: HeadersInit = {}) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...headers },
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...SECURITY_HEADERS, ...headers },
   });
 
 export default {
@@ -53,12 +62,15 @@ async function handleApi(req: Request, url: URL, env: Env): Promise<Response> {
 
   // ---- 未承認でも使えるエンドポイント ----
   switch (route) {
-    case "GET /api/device":
+    case "GET /api/device": {
+      if (device?.status === "approved") return json({ status: "approved", id: device.id, name: device.name });
+      const bootstrap_available = (await approvedCount(env)) === 0;
       return json(
         device
-          ? { status: device.status, id: device.id, name: device.name, pair_code: device.status === "pending" ? device.pair_code : null }
-          : { status: "none" },
+          ? { status: device.status, id: device.id, name: device.name, pair_code: device.pair_code, bootstrap_available }
+          : { status: "none", bootstrap_available },
       );
+    }
     case "POST /api/device/register":
       return registerDevice(req, env);
     case "POST /api/device/bootstrap":
@@ -70,6 +82,7 @@ async function handleApi(req: Request, url: URL, env: Env): Promise<Response> {
   // ---- 承認済みデバイスのみ ----
   switch (route) {
     case "GET /api/devices": {
+      await pruneStaleDevices(env);
       const { results } = await env.DB.prepare(
         "SELECT id, name, user_agent, status, pair_code, created_at, last_seen_at FROM devices ORDER BY status DESC, created_at",
       ).all();
@@ -103,7 +116,11 @@ async function handleApi(req: Request, url: URL, env: Env): Promise<Response> {
       return saveNote(req, env);
     case "DELETE /api/note": {
       const path = checkPath(url.searchParams.get("path"));
+      const note = await env.DB.prepare("SELECT content, updated_at FROM notes WHERE path = ?").bind(path).first<{ content: string; updated_at: number }>();
+      if (!note) throw new HttpError(404, "not found");
+      // 削除したノートはゴミ箱（reason = 'delete' の版）から復元できる
       await env.DB.batch([
+        ...revisionStatements(env, path, note.content, "delete", note.updated_at),
         env.DB.prepare("DELETE FROM notes WHERE path = ?").bind(path),
         env.DB.prepare("DELETE FROM links WHERE src = ?").bind(path),
       ]);
@@ -111,6 +128,31 @@ async function handleApi(req: Request, url: URL, env: Env): Promise<Response> {
     }
     case "POST /api/note/rename":
       return renameNote(req, env);
+    case "POST /api/note/restore":
+      return restoreRevision(req, env);
+    case "GET /api/revisions": {
+      const path = checkPath(url.searchParams.get("path"));
+      const { results } = await env.DB.prepare(
+        "SELECT id, reason, saved_at, created_at, length(content) AS size FROM note_revisions WHERE path = ? ORDER BY id DESC",
+      ).bind(path).all();
+      return json({ revisions: results });
+    }
+    case "GET /api/revision": {
+      const rev = await env.DB.prepare("SELECT id, path, content, reason, saved_at FROM note_revisions WHERE id = ?")
+        .bind(Number(url.searchParams.get("id"))).first();
+      if (!rev) throw new HttpError(404, "not found");
+      return json(rev);
+    }
+    case "GET /api/trash": {
+      // 削除された後、同じパスで作り直されていないノート
+      const { results } = await env.DB.prepare(
+        `SELECT r.id, r.path, r.created_at AS deleted_at FROM note_revisions r
+           WHERE r.reason = 'delete' AND r.path NOT IN (SELECT path FROM notes)
+             AND r.id = (SELECT max(id) FROM note_revisions WHERE path = r.path AND reason = 'delete')
+           ORDER BY r.id DESC`,
+      ).all();
+      return json({ trash: results });
+    }
     case "GET /api/backlinks": {
       const path = checkPath(url.searchParams.get("path"));
       const { results } = await env.DB.prepare(
@@ -141,6 +183,10 @@ async function currentDevice(req: Request, env: Env): Promise<Device | null> {
   const device = await env.DB.prepare(
     "SELECT id, name, status, pair_code, last_seen_at FROM devices WHERE token_hash = ?",
   ).bind(await sha256(token)).first<Device>();
+  if (device?.status === "approved" && Date.now() - device.last_seen_at > DEVICE_TTL) {
+    await env.DB.prepare("DELETE FROM devices WHERE id = ?").bind(device.id).run();
+    return null;
+  }
   if (device && Date.now() - device.last_seen_at > 5 * 60 * 1000) {
     await env.DB.prepare("UPDATE devices SET last_seen_at = ? WHERE id = ?").bind(Date.now(), device.id).run();
   }
@@ -167,9 +213,20 @@ async function registerDevice(req: Request, env: Env): Promise<Response> {
   });
 }
 
-// 最初の1台（または全デバイスを失ったとき）用: シークレットで自分自身を承認する
+async function pruneStaleDevices(env: Env): Promise<void> {
+  await env.DB.prepare("DELETE FROM devices WHERE status = 'approved' AND last_seen_at < ?").bind(Date.now() - DEVICE_TTL).run();
+}
+
+async function approvedCount(env: Env): Promise<number> {
+  await pruneStaleDevices(env);
+  return (await env.DB.prepare("SELECT count(*) AS n FROM devices WHERE status = 'approved'").first<number>("n")) ?? 0;
+}
+
+// 最初の1台（または全デバイスを失ったとき）用: シークレットで自分自身を承認する。
+// 承認済みデバイスが1台でもあれば使えないので、シークレットが漏れても入られない。
 async function bootstrap(req: Request, env: Env, device: Device | null): Promise<Response> {
   if (!device) throw new HttpError(400, "先にデバイスを登録してください");
+  if ((await approvedCount(env)) > 0) throw new HttpError(403, "承認済みのデバイスがあるため使えません。承認済みデバイスから承認してください");
   if (!env.BOOTSTRAP_SECRET || env.BOOTSTRAP_SECRET.length < 16) throw new HttpError(500, "BOOTSTRAP_SECRET が未設定か短すぎます");
 
   const hourAgo = Date.now() - 60 * 60 * 1000;
@@ -194,14 +251,25 @@ async function saveNote(req: Request, env: Env): Promise<Response> {
   if (typeof content !== "string") throw new HttpError(400, "content must be a string");
   if (content.length > 1_000_000) throw new HttpError(413, "ノートが大きすぎます");
 
-  const existing = await env.DB.prepare("SELECT updated_at FROM notes WHERE path = ?").bind(path).first<number>("updated_at");
-  // 楽観的ロック: 他のデバイスで先に更新されていたら上書きしない
-  if (base_updated_at !== undefined && (existing ?? null) !== base_updated_at) {
+  const existing = await env.DB.prepare("SELECT content, updated_at FROM notes WHERE path = ?").bind(path)
+    .first<{ content: string; updated_at: number }>();
+  // 楽観的ロック: 他のデバイスで先に更新されていたら上書きしない（base_updated_at 省略時は強制上書き）
+  const force = base_updated_at === undefined;
+  if (!force && (existing?.updated_at ?? null) !== base_updated_at) {
     throw new HttpError(409, "他のデバイスで更新されています");
+  }
+
+  // 上書き前の内容を版として残す。自動保存のたびに残さないよう、通常の編集は一定間隔ごと
+  const revisions: D1PreparedStatement[] = [];
+  if (existing && existing.content && existing.content !== content) {
+    const last = await env.DB.prepare("SELECT max(created_at) AS t FROM note_revisions WHERE path = ?").bind(path).first<number>("t");
+    if (force) revisions.push(...revisionStatements(env, path, existing.content, "overwrite", existing.updated_at));
+    else if (!last || Date.now() - last >= REVISION_INTERVAL) revisions.push(...revisionStatements(env, path, existing.content, "edit", existing.updated_at));
   }
 
   const now = Date.now();
   await env.DB.batch([
+    ...revisions,
     env.DB.prepare(
       `INSERT INTO notes (path, content, created_at, updated_at) VALUES (?1, ?2, ?3, ?3)
        ON CONFLICT (path) DO UPDATE SET content = ?2, updated_at = ?3`,
@@ -220,9 +288,39 @@ async function renameNote(req: Request, env: Env): Promise<Response> {
   const r = await env.DB.batch([
     env.DB.prepare("UPDATE notes SET path = ?, updated_at = ? WHERE path = ?").bind(to, Date.now(), from),
     env.DB.prepare("UPDATE links SET src = ? WHERE src = ?").bind(to, from),
+    env.DB.prepare("UPDATE note_revisions SET path = ? WHERE path = ?").bind(to, from),
   ]);
   if (!r[0].meta.changes) throw new HttpError(404, "not found");
   return json({ path: to });
+}
+
+// 過去の版（またはゴミ箱のノート）を復元する。復元前の内容も版として残す
+async function restoreRevision(req: Request, env: Env): Promise<Response> {
+  const { id } = await body<{ id: number }>(req);
+  const rev = await env.DB.prepare("SELECT path, content FROM note_revisions WHERE id = ?").bind(id).first<{ path: string; content: string }>();
+  if (!rev) throw new HttpError(404, "not found");
+  const existing = await env.DB.prepare("SELECT content, updated_at FROM notes WHERE path = ?").bind(rev.path)
+    .first<{ content: string; updated_at: number }>();
+  const now = Date.now();
+  await env.DB.batch([
+    ...(existing && existing.content !== rev.content ? revisionStatements(env, rev.path, existing.content, "restore", existing.updated_at) : []),
+    env.DB.prepare(
+      `INSERT INTO notes (path, content, created_at, updated_at) VALUES (?1, ?2, ?3, ?3)
+       ON CONFLICT (path) DO UPDATE SET content = ?2, updated_at = ?3`,
+    ).bind(rev.path, rev.content, now),
+    ...linkStatements(env, rev.path, rev.content),
+  ]);
+  return json({ path: rev.path, updated_at: now });
+}
+
+function revisionStatements(env: Env, path: string, content: string, reason: string, savedAt: number): D1PreparedStatement[] {
+  return [
+    env.DB.prepare("INSERT INTO note_revisions (path, content, reason, saved_at, created_at) VALUES (?, ?, ?, ?, ?)")
+      .bind(path, content, reason, savedAt, Date.now()),
+    env.DB.prepare(
+      "DELETE FROM note_revisions WHERE path = ?1 AND id NOT IN (SELECT id FROM note_revisions WHERE path = ?1 ORDER BY id DESC LIMIT ?2)",
+    ).bind(path, MAX_REVISIONS),
+  ];
 }
 
 function linkStatements(env: Env, path: string, content: string): D1PreparedStatement[] {
