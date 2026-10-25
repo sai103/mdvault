@@ -221,6 +221,9 @@ dialog::backdrop { background: #0007; }
 .devices td:last-child { display: flex; gap: 4px; justify-content: flex-end; flex-wrap: wrap; }
 .devices input.code { width: 7em; }
 .hint { color: var(--muted); font-size: 13px; }
+.dialog-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.dialog-actions form { margin-left: auto; }
+.devices button:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .history { width: min(960px, calc(100% - 32px)); }
 .history h2, .devices h2 { margin-top: 0; }

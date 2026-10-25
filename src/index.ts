@@ -1,53 +1,9 @@
-// 設定値はすべて wrangler.jsonc の vars で定義する
-const SETTING_KEYS = [
-  "DEVICE_TTL_DAYS",
-  "COOKIE_MAX_AGE_DAYS",
-  "MAX_PENDING_DEVICES",
-  "PENDING_DEVICE_TTL_HOURS",
-  "BOOTSTRAP_MAX_FAILURES_PER_HOUR",
-  "APPROVAL_POLL_SECONDS",
-  "AUTOSAVE_DELAY_MS",
-  "MAX_NOTE_CHARS",
-  "MAX_LINKS_PER_NOTE",
-  "REVISION_INTERVAL_MINUTES",
-  "MAX_REVISIONS_PER_NOTE",
-] as const;
-type Settings = Record<(typeof SETTING_KEYS)[number], number>;
-
-interface Env extends Partial<Record<keyof Settings, unknown>> {
-  DB: D1Database;
-  ASSETS: Fetcher;
-  BOOTSTRAP_SECRET: string;
-}
-
-type Device = {
-  id: string;
-  name: string;
-  status: "pending" | "approved";
-  pair_code: string | null;
-  last_seen_at: number;
-};
+import {
+  DAY, HttpError, body, getCookie, json, randomHex, setCookie, settings, sha256, timingSafeEqual, type Device, type Env,
+} from "./common";
+import { currentSession, handlePasskeyApi, passkeyCount } from "./passkey";
 
 const COOKIE = "mdv_device";
-const DAY = 24 * 60 * 60 * 1000;
-
-const SECURITY_HEADERS = {
-  "x-content-type-options": "nosniff",
-  "referrer-policy": "no-referrer",
-  "content-security-policy": "default-src 'none'; frame-ancestors 'none'",
-};
-
-class HttpError extends Error {
-  constructor(public status: number, message: string) {
-    super(message);
-  }
-}
-
-const json = (data: unknown, status = 200, headers: HeadersInit = {}) =>
-  new Response(JSON.stringify(data), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...SECURITY_HEADERS, ...headers },
-  });
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
@@ -62,18 +18,6 @@ export default {
     }
   },
 } satisfies ExportedHandler<Env>;
-
-function settings(env: Env): Settings {
-  const s = {} as Settings;
-  for (const key of SETTING_KEYS) {
-    const v = Number(env[key]);
-    if (env[key] === undefined || env[key] === "" || !Number.isFinite(v) || v <= 0) {
-      throw new HttpError(500, `wrangler.jsonc の vars.${key} が未設定か不正です`);
-    }
-    s[key] = v;
-  }
-  return s;
-}
 
 async function handleApi(req: Request, url: URL, env: Env): Promise<Response> {
   // CSRF 対策: 状態を変えるリクエストにはカスタムヘッダを必須にする（SameSite=Strict と併用）
@@ -91,7 +35,11 @@ async function handleApi(req: Request, url: URL, env: Env): Promise<Response> {
         approval_poll_seconds: s.APPROVAL_POLL_SECONDS,
         revision_interval_minutes: s.REVISION_INTERVAL_MINUTES,
       };
-      if (device?.status === "approved") return json({ status: "approved", id: device.id, name: device.name, settings: client });
+      if (device?.status === "approved") {
+        // auth: ok = ログイン済み / login = パスキーでログインが必要 / setup = 最初のパスキーを登録する
+        const auth = (await currentSession(req, env, device)) ? "ok" : (await passkeyCount(env)) === 0 ? "setup" : "login";
+        return json({ status: "approved", id: device.id, name: device.name, auth, settings: client });
+      }
       const bootstrap_available = (await approvedCount(env)) === 0;
       return json(
         device
@@ -107,7 +55,14 @@ async function handleApi(req: Request, url: URL, env: Env): Promise<Response> {
 
   if (!device || device.status !== "approved") throw new HttpError(401, "device not approved");
 
-  // ---- 承認済みデバイスのみ ----
+  // ---- 承認済みデバイス: パスキーの登録・ログイン ----
+  const session = await currentSession(req, env, device);
+  const passkeyResponse = await handlePasskeyApi(route, req, url, env, device, session);
+  if (passkeyResponse) return passkeyResponse;
+
+  if (!session) throw new HttpError(401, "login required");
+
+  // ---- 承認済みデバイス + パスキーでログイン済み ----
   switch (route) {
     case "GET /api/devices": {
       await pruneStaleDevices(env);
@@ -126,7 +81,10 @@ async function handleApi(req: Request, url: URL, env: Env): Promise<Response> {
     }
     case "DELETE /api/devices": {
       const id = url.searchParams.get("id") ?? "";
-      await env.DB.prepare("DELETE FROM devices WHERE id = ?").bind(id).run();
+      await env.DB.batch([
+        env.DB.prepare("DELETE FROM devices WHERE id = ?").bind(id),
+        env.DB.prepare("DELETE FROM sessions WHERE device_id = ?").bind(id),
+      ]);
       return json({ ok: true });
     }
 
@@ -212,7 +170,10 @@ async function currentDevice(req: Request, env: Env): Promise<Device | null> {
     "SELECT id, name, status, pair_code, last_seen_at FROM devices WHERE token_hash = ?",
   ).bind(await sha256(token)).first<Device>();
   if (device?.status === "approved" && Date.now() - device.last_seen_at > settings(env).DEVICE_TTL_DAYS * DAY) {
-    await env.DB.prepare("DELETE FROM devices WHERE id = ?").bind(device.id).run();
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM devices WHERE id = ?").bind(device.id),
+      env.DB.prepare("DELETE FROM sessions WHERE device_id = ?").bind(device.id),
+    ]);
     return null;
   }
   if (device && Date.now() - device.last_seen_at > 5 * 60 * 1000) {
@@ -236,14 +197,15 @@ async function registerDevice(req: Request, env: Env): Promise<Response> {
     "INSERT INTO devices (id, token_hash, name, user_agent, status, pair_code, created_at, last_seen_at) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)",
   ).bind(id, await sha256(token), (name || "名称未設定").slice(0, 64), req.headers.get("user-agent")?.slice(0, 256) ?? null, pairCode, now, now).run();
 
-  const secure = new URL(req.url).protocol === "https:" ? "; Secure" : "";
-  return json({ status: "pending", id, pair_code: pairCode }, 200, {
-    "set-cookie": `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${Math.round(s.COOKIE_MAX_AGE_DAYS * 24 * 60 * 60)}${secure}`,
-  });
+  return json({ status: "pending", id, pair_code: pairCode }, 200, { "set-cookie": setCookie(req, env, COOKIE, token) });
 }
 
 async function pruneStaleDevices(env: Env): Promise<void> {
-  await env.DB.prepare("DELETE FROM devices WHERE status = 'approved' AND last_seen_at < ?").bind(Date.now() - settings(env).DEVICE_TTL_DAYS * DAY).run();
+  const cutoff = Date.now() - settings(env).DEVICE_TTL_DAYS * DAY;
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM sessions WHERE device_id IN (SELECT id FROM devices WHERE status = 'approved' AND last_seen_at < ?)").bind(cutoff),
+    env.DB.prepare("DELETE FROM devices WHERE status = 'approved' AND last_seen_at < ?").bind(cutoff),
+  ]);
 }
 
 async function approvedCount(env: Env): Promise<number> {
@@ -383,38 +345,4 @@ function checkPath(p: unknown): string {
     path.split("/").every((seg) => seg && seg !== "." && seg !== "..");
   if (!ok) throw new HttpError(400, `不正なパス: ${path}`);
   return path;
-}
-
-// ---------------- ユーティリティ ----------------
-
-async function body<T>(req: Request): Promise<T> {
-  try {
-    return (await req.json()) as T;
-  } catch {
-    throw new HttpError(400, "invalid json");
-  }
-}
-
-function getCookie(req: Request, name: string): string | null {
-  const header = req.headers.get("cookie") ?? "";
-  for (const part of header.split(";")) {
-    const [k, ...v] = part.trim().split("=");
-    if (k === name) return v.join("=");
-  }
-  return null;
-}
-
-function randomHex(bytes: number): string {
-  return [...crypto.getRandomValues(new Uint8Array(bytes))].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-async function sha256(s: string): Promise<string> {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
-  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-async function timingSafeEqual(a: string, b: string): Promise<boolean> {
-  // 長さの違いを漏らさないよう、ハッシュ同士を比較する
-  const [ha, hb] = await Promise.all([a, b].map((s) => crypto.subtle.digest("SHA-256", new TextEncoder().encode(s))));
-  return crypto.subtle.timingSafeEqual(ha, hb);
 }

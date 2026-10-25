@@ -25,8 +25,12 @@ KV・R2・Durable Objects などは使っていません。画像の添付を作
 
 ### CPU 時間 10ms の制限について
 
-Workers の無料プランは 1 リクエストあたりの CPU 時間が 10ms までです。現在の処理（SHA-256 の計算と DB の読み書き）はこれに収まります。
-パスワード認証を追加する場合、計算の重いハッシュ（PBKDF2・bcrypt など）は 10ms を超えるおそれがあるため、パスキー（WebAuthn）のほうが向いています。
+Workers の無料プランは 1 リクエストあたりの CPU 時間が 10ms までです。現在の処理（SHA-256 の計算、パスキーの署名検証、DB の読み書き）はこれに収まる想定です。
+署名の検証は Workers の WebCrypto で行うので軽い処理です。パスワード認証にしなかったのは、計算の重いハッシュ（PBKDF2・bcrypt など）が 10ms を超えるおそれがあるためです。
+
+> 10ms の制限はローカルの `wrangler dev` では再現されません。本番で CPU 時間超過のエラー（Error 1102）が出る場合は、ダッシュボードの Worker のログで確認してください。
+
+Worker のサイズは圧縮後約 130KB です（無料プランの上限は 3MB）。
 
 ## デプロイ
 
@@ -69,19 +73,31 @@ npm run deploy
 - **ログ**: `wrangler.jsonc` の `observability` が有効だと、リクエスト URL（ノートのパスや検索語）が Cloudflare のログに残ります。気になる場合は `false` にしてください
 - **データの保管**: D1 は保存時に暗号化されますが、Cloudflare からは読める状態です。完全に秘密にしたい場合は、ブラウザ側で暗号化する設計が必要になります（検索が難しくなります）
 
-### 全デバイスを失ったとき
+### デバイスやパスキーをすべて失ったとき
 
-承認済みデバイスが 0 台になればブートストラップが使えるようになります。`DEVICE_TTL_DAYS`（既定 90 日）待つか、次のコマンドでデバイスを全削除してください。
+Cloudflare アカウントでログインした `wrangler` から DB を直接操作して復旧します。
+
+**承認済みデバイスをすべて失った**（パスキーは手元にある）とき: 承認済みデバイスが 0 台になればブートストラップが使えるようになります。
+`DEVICE_TTL_DAYS`（既定 90 日）待つか、次のコマンドでデバイスを全削除してください。ブートストラップで承認した後、手元のパスキーでログインします。
 
 ```bash
-npx wrangler d1 execute mdvault --remote --command "DELETE FROM devices"
+npx wrangler d1 execute mdvault --remote --command "DELETE FROM devices; DELETE FROM sessions"
 ```
+
+**パスキーをすべて失った**とき: パスキーが 0 個になると、承認済みデバイスで新しいパスキーを登録できるようになります。
+
+```bash
+npx wrangler d1 execute mdvault --remote --command "DELETE FROM passkeys; DELETE FROM sessions"
+```
+
+どちらも失ったときは、両方のコマンドを実行してから最初の 1 台と同じ手順（ブートストラップ → パスキー登録）でやり直します。
+ノートのデータは消えません。
 
 ## さらに強くアクセスを制限したい場合（任意）
 
-アプリ内のデバイス承認に加えて、Cloudflare 側の機能を重ねられます。
+アプリ内のデバイス承認とパスキーに加えて、Cloudflare 側の機能を重ねられます。
 
-- **Cloudflare Access**（Zero Trust Free プラン、50 ユーザーまで無料）: アプリの前にログインを挟みます。
+- **Cloudflare Access**（Zero Trust Free プラン、50 ユーザーまで無料）: アプリの前にさらにログインを挟みます。
   Worker の Settings → Domains & Routes で、workers.dev の「Cloudflare Access」を有効にするだけでも使えます（画面の場所は Cloudflare 側の変更で変わることがあります）。
   メールのワンタイムコードや GitHub ログインなどで認証でき、WARP クライアントと組み合わせるとデバイスポスチャ（端末の状態）も確認できます
 - **mTLS（クライアント証明書）**: 独自ドメインを Cloudflare に置いている場合、証明書を入れた端末からしか TLS 接続できないようにできます

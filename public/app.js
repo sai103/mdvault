@@ -35,15 +35,20 @@ async function api(method, path, body) {
   return data;
 }
 
-// ---------------- デバイス承認ゲート ----------------
+// ---------------- デバイス承認・パスキーのゲート ----------------
 
 async function boot() {
   const dev = await api("GET", "/api/device");
   settings = dev.settings;
-  if (dev.status === "approved") return startApp();
+  if (dev.status === "approved" && dev.auth === "ok") return startApp();
   $("#gate").hidden = false;
   $("#gate-none").hidden = dev.status !== "none";
   $("#gate-pending").hidden = dev.status !== "pending";
+  $("#gate-passkey-setup").hidden = dev.auth !== "setup";
+  $("#gate-passkey-login").hidden = dev.auth !== "login";
+  if (dev.auth && !SimpleWebAuthnBrowser.browserSupportsWebAuthn()) {
+    $("#gate-error").textContent = "このブラウザはパスキーに対応していません";
+  }
   if (dev.status === "pending") {
     $("#pair-code").textContent = dev.pair_code;
     $("#bootstrap-section").hidden = !dev.bootstrap_available;
@@ -54,6 +59,28 @@ async function boot() {
 $("#device-name").value = guessDeviceName();
 $("#register-btn").onclick = () => gateAction(() => api("POST", "/api/device/register", { name: $("#device-name").value }));
 $("#bootstrap-btn").onclick = () => gateAction(() => api("POST", "/api/device/bootstrap", { secret: $("#secret").value }));
+$("#passkey-setup-name").value = guessDeviceName();
+$("#passkey-setup-btn").onclick = () => gateAction(() => registerPasskey($("#passkey-setup-name").value));
+$("#passkey-login-btn").onclick = () => gateAction(loginWithPasskey);
+
+// パスキーの作成・署名はブラウザ（OS）の画面で行い、結果をサーバーで検証する
+async function registerPasskey(name) {
+  const optionsJSON = await api("POST", "/api/passkey/register/options");
+  const response = await SimpleWebAuthnBrowser.startRegistration({ optionsJSON }).catch(passkeyError);
+  await api("POST", "/api/passkey/register/verify", { response, name });
+}
+
+async function loginWithPasskey() {
+  const optionsJSON = await api("POST", "/api/passkey/login/options");
+  const response = await SimpleWebAuthnBrowser.startAuthentication({ optionsJSON }).catch(passkeyError);
+  await api("POST", "/api/passkey/login/verify", { response });
+}
+
+function passkeyError(e) {
+  if (e.name === "NotAllowedError") throw new Error("キャンセルされたか、時間切れになりました");
+  if (e.name === "InvalidStateError") throw new Error("この認証器には既にパスキーが登録されています");
+  throw e;
+}
 
 async function gateAction(fn) {
   $("#gate-error").textContent = "";
@@ -553,9 +580,52 @@ async function openDevices() {
     tr.append(name, status, seen, actions);
     return tr;
   }));
+  await renderPasskeys();
   if (!$("#devices").open) $("#devices").showModal();
 }
 $("#open-devices").onclick = () => openDevices().catch((e) => alert(e.message));
+
+async function renderPasskeys() {
+  const { passkeys, current } = await api("GET", "/api/passkeys");
+  $("#passkey-list").replaceChildren(...passkeys.map((p) => {
+    const tr = document.createElement("tr");
+    const del = Object.assign(document.createElement("button"), { textContent: "削除", className: "danger", disabled: passkeys.length <= 1 });
+    if (passkeys.length <= 1) del.title = "最後のパスキーは削除できません";
+    del.onclick = async () => {
+      const msg = p.id === current ? "ログイン中のパスキーです。削除するとログアウトします。よろしいですか？" : `「${p.name}」を削除しますか？`;
+      if (!confirm(msg)) return;
+      await api("DELETE", "/api/passkeys?id=" + encodeURIComponent(p.id)).catch((e) => alert(e.message));
+      p.id === current ? location.reload() : renderPasskeys();
+    };
+    const actions = document.createElement("td");
+    actions.append(del);
+    tr.append(
+      Object.assign(document.createElement("td"), { textContent: p.name + (p.id === current ? "（ログイン中）" : "") }),
+      Object.assign(document.createElement("td"), { textContent: fmtTime(p.created_at) }),
+      Object.assign(document.createElement("td"), { textContent: p.last_used_at ? fmtTime(p.last_used_at) : "-" }),
+      actions,
+    );
+    return tr;
+  }));
+}
+
+$("#add-passkey").onclick = async () => {
+  const name = prompt("パスキーの名前", guessDeviceName());
+  if (name === null) return;
+  try {
+    await flushSave();
+    await registerPasskey(name);
+    await renderPasskeys();
+  } catch (e) {
+    alert(e.message);
+  }
+};
+
+$("#logout").onclick = async () => {
+  await flushSave();
+  await api("POST", "/api/logout");
+  location.reload();
+};
 
 // ---------------- 履歴・ゴミ箱 ----------------
 

@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <!-- デバイス承認画面 -->
+  <!-- デバイス承認・ログイン画面 -->
   <div id="gate" class="gate" hidden>
     <div class="gate-card">
       <h1>mdvault</h1>
@@ -18,13 +18,22 @@
         <button id="register-btn" class="primary">このデバイスを登録</button>
       </div>
       <div id="gate-pending" hidden>
-        <p>承認待ちです。承認済みのデバイスで「デバイス管理」を開き、次のコードで承認してください。</p>
+        <p>承認待ちです。ログイン済みのデバイスで「⚙ デバイスとパスキー」を開き、次のコードで承認してください。</p>
         <div id="pair-code" class="pair-code"></div>
         <details id="bootstrap-section">
           <summary>最初の1台の場合（ブートストラップ）</summary>
           <label>BOOTSTRAP_SECRET <input id="secret" type="password" autocomplete="off"></label>
           <button id="bootstrap-btn" class="primary">承認する</button>
         </details>
+      </div>
+      <div id="gate-passkey-setup" hidden>
+        <p>このデバイスは承認済みです。続けて、ログインに使う<strong>パスキー</strong>を登録してください（指紋・顔認証・PIN など）。</p>
+        <label>パスキーの名前 <input id="passkey-setup-name" placeholder="例: iPhone の Face ID"></label>
+        <button id="passkey-setup-btn" class="primary">パスキーを登録</button>
+      </div>
+      <div id="gate-passkey-login" hidden>
+        <p>パスキーでログインしてください。</p>
+        <button id="passkey-login-btn" class="primary">パスキーでログイン</button>
       </div>
       <p id="gate-error" class="error"></p>
     </div>
@@ -37,7 +46,7 @@
         <button id="new-note" title="新規ノート (Alt+N)">＋ ノート</button>
         <button id="open-switcher" title="クイックスイッチャー (Ctrl+P)">⌕</button>
         <button id="open-trash" title="ゴミ箱">♻</button>
-        <button id="open-devices" title="デバイス管理">⚙</button>
+        <button id="open-devices" title="デバイスとパスキー">⚙</button>
       </div>
       <input id="search" type="search" placeholder="全文検索…">
       <div id="search-results" class="search-results" hidden></div>
@@ -86,13 +95,23 @@
 
   <!-- デバイス管理 -->
   <dialog id="devices" class="devices">
-    <h2>デバイス管理</h2>
+    <h2>デバイス</h2>
     <table>
       <thead><tr><th>名前</th><th>状態</th><th>最終アクセス</th><th></th></tr></thead>
       <tbody id="device-list"></tbody>
     </table>
     <p class="hint">新しいデバイスを承認するには、そのデバイスに表示されている 6 桁のコードを入力します。</p>
-    <form method="dialog"><button>閉じる</button></form>
+    <h2>パスキー</h2>
+    <table>
+      <thead><tr><th>名前</th><th>登録日時</th><th>最終使用</th><th></th></tr></thead>
+      <tbody id="passkey-list"></tbody>
+    </table>
+    <p class="hint">iCloud キーチェーンや Google パスワードマネージャーで同期されるパスキーなら、他のデバイスでもそのまま使えます。</p>
+    <div class="dialog-actions">
+      <button id="add-passkey" class="primary">パスキーを追加</button>
+      <button id="logout" class="danger">ログアウト</button>
+      <form method="dialog"><button>閉じる</button></form>
+    </div>
   </dialog>
 
  <!-- 履歴 -->
@@ -118,6 +137,7 @@
     <form method="dialog"><button>閉じる</button></form>
   </dialog>
 
+  <script src="/vendor/simplewebauthn.js"></script>
   <script type="module" src="/app.js"></script>
 </body>
 </html>
