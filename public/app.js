@@ -7,6 +7,9 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
 
+// サーバー（wrangler.jsonc の vars）から受け取る設定
+let settings = {};
+
 const state = {
   notes: [],          // [{path, updated_at}]
   current: null,      // {path, content, updated_at|null}
@@ -36,6 +39,7 @@ async function api(method, path, body) {
 
 async function boot() {
   const dev = await api("GET", "/api/device");
+  settings = dev.settings;
   if (dev.status === "approved") return startApp();
   $("#gate").hidden = false;
   $("#gate-none").hidden = dev.status !== "none";
@@ -43,7 +47,7 @@ async function boot() {
   if (dev.status === "pending") {
     $("#pair-code").textContent = dev.pair_code;
     $("#bootstrap-section").hidden = !dev.bootstrap_available;
-    setTimeout(boot, 5000); // 他デバイスでの承認を待つ
+    setTimeout(boot, settings.approval_poll_seconds * 1000); // 他デバイスでの承認を待つ
   }
 }
 
@@ -183,7 +187,7 @@ function scheduleSave() {
   state.dirty = true;
   setStatus("未保存");
   clearTimeout(state.saveTimer);
-  state.saveTimer = setTimeout(save, 800);
+  state.saveTimer = setTimeout(save, settings.autosave_delay_ms);
 }
 
 async function flushSave() {
@@ -564,7 +568,7 @@ async function openHistory() {
   await flushSave();
   const { revisions } = await api("GET", "/api/revisions?path=" + encodeURIComponent(cur.path));
   $("#revision-preview").replaceChildren(Object.assign(document.createElement("p"), {
-    className: "muted", textContent: revisions.length ? "左の一覧から版を選んでください" : "まだ履歴がありません（編集すると10分ごとに記録されます）",
+    className: "muted", textContent: revisions.length ? "左の一覧から版を選んでください" : `まだ履歴がありません（編集すると${settings.revision_interval_minutes}分ごとに記録されます）`,
   }));
   $("#restore-revision").hidden = true;
   $("#revision-list").replaceChildren(...revisions.map((r) => {

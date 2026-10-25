@@ -1,4 +1,20 @@
-interface Env {
+// 設定値はすべて wrangler.jsonc の vars で定義する
+const SETTING_KEYS = [
+  "DEVICE_TTL_DAYS",
+  "COOKIE_MAX_AGE_DAYS",
+  "MAX_PENDING_DEVICES",
+  "PENDING_DEVICE_TTL_HOURS",
+  "BOOTSTRAP_MAX_FAILURES_PER_HOUR",
+  "APPROVAL_POLL_SECONDS",
+  "AUTOSAVE_DELAY_MS",
+  "MAX_NOTE_CHARS",
+  "MAX_LINKS_PER_NOTE",
+  "REVISION_INTERVAL_MINUTES",
+  "MAX_REVISIONS_PER_NOTE",
+] as const;
+type Settings = Record<(typeof SETTING_KEYS)[number], number>;
+
+interface Env extends Partial<Record<keyof Settings, unknown>> {
   DB: D1Database;
   ASSETS: Fetcher;
   BOOTSTRAP_SECRET: string;
@@ -13,13 +29,7 @@ type Device = {
 };
 
 const COOKIE = "mdv_device";
-const COOKIE_MAX_AGE = 400 * 24 * 60 * 60; // ブラウザの上限 (400日)
-const MAX_PENDING = 10;
-const PENDING_TTL = 24 * 60 * 60 * 1000;
-const MAX_FAILURES_PER_HOUR = 10;
-const DEVICE_TTL = 90 * 24 * 60 * 60 * 1000; // この期間使われなかった承認済みデバイスは削除
-const REVISION_INTERVAL = 10 * 60 * 1000; // 通常の編集で版を残す最短間隔
-const MAX_REVISIONS = 50; // ノートごとに残す版の数
+const DAY = 24 * 60 * 60 * 1000;
 
 const SECURITY_HEADERS = {
   "x-content-type-options": "nosniff",
@@ -53,6 +63,18 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
+function settings(env: Env): Settings {
+  const s = {} as Settings;
+  for (const key of SETTING_KEYS) {
+    const v = Number(env[key]);
+    if (env[key] === undefined || env[key] === "" || !Number.isFinite(v) || v <= 0) {
+      throw new HttpError(500, `wrangler.jsonc の vars.${key} が未設定か不正です`);
+    }
+    s[key] = v;
+  }
+  return s;
+}
+
 async function handleApi(req: Request, url: URL, env: Env): Promise<Response> {
   // CSRF 対策: 状態を変えるリクエストにはカスタムヘッダを必須にする（SameSite=Strict と併用）
   if (req.method !== "GET" && req.headers.get("x-mdv") !== "1") throw new HttpError(403, "missing header");
@@ -63,12 +85,18 @@ async function handleApi(req: Request, url: URL, env: Env): Promise<Response> {
   // ---- 未承認でも使えるエンドポイント ----
   switch (route) {
     case "GET /api/device": {
-      if (device?.status === "approved") return json({ status: "approved", id: device.id, name: device.name });
+      const s = settings(env);
+      const client = {
+        autosave_delay_ms: s.AUTOSAVE_DELAY_MS,
+        approval_poll_seconds: s.APPROVAL_POLL_SECONDS,
+        revision_interval_minutes: s.REVISION_INTERVAL_MINUTES,
+      };
+      if (device?.status === "approved") return json({ status: "approved", id: device.id, name: device.name, settings: client });
       const bootstrap_available = (await approvedCount(env)) === 0;
       return json(
         device
-          ? { status: device.status, id: device.id, name: device.name, pair_code: device.pair_code, bootstrap_available }
-          : { status: "none", bootstrap_available },
+          ? { status: device.status, id: device.id, name: device.name, pair_code: device.pair_code, bootstrap_available, settings: client }
+          : { status: "none", bootstrap_available, settings: client },
       );
     }
     case "POST /api/device/register":
@@ -183,7 +211,7 @@ async function currentDevice(req: Request, env: Env): Promise<Device | null> {
   const device = await env.DB.prepare(
     "SELECT id, name, status, pair_code, last_seen_at FROM devices WHERE token_hash = ?",
   ).bind(await sha256(token)).first<Device>();
-  if (device?.status === "approved" && Date.now() - device.last_seen_at > DEVICE_TTL) {
+  if (device?.status === "approved" && Date.now() - device.last_seen_at > settings(env).DEVICE_TTL_DAYS * DAY) {
     await env.DB.prepare("DELETE FROM devices WHERE id = ?").bind(device.id).run();
     return null;
   }
@@ -195,10 +223,11 @@ async function currentDevice(req: Request, env: Env): Promise<Device | null> {
 
 async function registerDevice(req: Request, env: Env): Promise<Response> {
   const { name } = await body<{ name?: string }>(req);
+  const s = settings(env);
   const now = Date.now();
-  await env.DB.prepare("DELETE FROM devices WHERE status = 'pending' AND created_at < ?").bind(now - PENDING_TTL).run();
+  await env.DB.prepare("DELETE FROM devices WHERE status = 'pending' AND created_at < ?").bind(now - s.PENDING_DEVICE_TTL_HOURS * 60 * 60 * 1000).run();
   const pending = await env.DB.prepare("SELECT count(*) AS n FROM devices WHERE status = 'pending'").first<number>("n");
-  if ((pending ?? 0) >= MAX_PENDING) throw new HttpError(429, "承認待ちのデバイスが多すぎます");
+  if ((pending ?? 0) >= s.MAX_PENDING_DEVICES) throw new HttpError(429, "承認待ちのデバイスが多すぎます");
 
   const token = randomHex(32);
   const id = crypto.randomUUID();
@@ -209,12 +238,12 @@ async function registerDevice(req: Request, env: Env): Promise<Response> {
 
   const secure = new URL(req.url).protocol === "https:" ? "; Secure" : "";
   return json({ status: "pending", id, pair_code: pairCode }, 200, {
-    "set-cookie": `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${COOKIE_MAX_AGE}${secure}`,
+    "set-cookie": `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${Math.round(s.COOKIE_MAX_AGE_DAYS * 24 * 60 * 60)}${secure}`,
   });
 }
 
 async function pruneStaleDevices(env: Env): Promise<void> {
-  await env.DB.prepare("DELETE FROM devices WHERE status = 'approved' AND last_seen_at < ?").bind(Date.now() - DEVICE_TTL).run();
+  await env.DB.prepare("DELETE FROM devices WHERE status = 'approved' AND last_seen_at < ?").bind(Date.now() - settings(env).DEVICE_TTL_DAYS * DAY).run();
 }
 
 async function approvedCount(env: Env): Promise<number> {
@@ -232,7 +261,7 @@ async function bootstrap(req: Request, env: Env, device: Device | null): Promise
   const hourAgo = Date.now() - 60 * 60 * 1000;
   await env.DB.prepare("DELETE FROM auth_failures WHERE ts < ?").bind(hourAgo).run();
   const failures = await env.DB.prepare("SELECT count(*) AS n FROM auth_failures").first<number>("n");
-  if ((failures ?? 0) >= MAX_FAILURES_PER_HOUR) throw new HttpError(429, "失敗が多すぎます。1時間後に再試行してください");
+  if ((failures ?? 0) >= settings(env).BOOTSTRAP_MAX_FAILURES_PER_HOUR) throw new HttpError(429, "失敗が多すぎます。1時間後に再試行してください");
 
   const { secret } = await body<{ secret?: string }>(req);
   if (!(await timingSafeEqual(secret ?? "", env.BOOTSTRAP_SECRET))) {
@@ -249,7 +278,8 @@ async function saveNote(req: Request, env: Env): Promise<Response> {
   const { path: rawPath, content, base_updated_at } = await body<{ path: string; content: string; base_updated_at?: number | null }>(req);
   const path = checkPath(rawPath);
   if (typeof content !== "string") throw new HttpError(400, "content must be a string");
-  if (content.length > 1_000_000) throw new HttpError(413, "ノートが大きすぎます");
+  const s = settings(env);
+  if (content.length > s.MAX_NOTE_CHARS) throw new HttpError(413, "ノートが大きすぎます");
 
   const existing = await env.DB.prepare("SELECT content, updated_at FROM notes WHERE path = ?").bind(path)
     .first<{ content: string; updated_at: number }>();
@@ -264,7 +294,7 @@ async function saveNote(req: Request, env: Env): Promise<Response> {
   if (existing && existing.content && existing.content !== content) {
     const last = await env.DB.prepare("SELECT max(created_at) AS t FROM note_revisions WHERE path = ?").bind(path).first<number>("t");
     if (force) revisions.push(...revisionStatements(env, path, existing.content, "overwrite", existing.updated_at));
-    else if (!last || Date.now() - last >= REVISION_INTERVAL) revisions.push(...revisionStatements(env, path, existing.content, "edit", existing.updated_at));
+    else if (!last || Date.now() - last >= s.REVISION_INTERVAL_MINUTES * 60 * 1000) revisions.push(...revisionStatements(env, path, existing.content, "edit", existing.updated_at));
   }
 
   const now = Date.now();
@@ -319,7 +349,7 @@ function revisionStatements(env: Env, path: string, content: string, reason: str
       .bind(path, content, reason, savedAt, Date.now()),
     env.DB.prepare(
       "DELETE FROM note_revisions WHERE path = ?1 AND id NOT IN (SELECT id FROM note_revisions WHERE path = ?1 ORDER BY id DESC LIMIT ?2)",
-    ).bind(path, MAX_REVISIONS),
+    ).bind(path, settings(env).MAX_REVISIONS_PER_NOTE),
   ];
 }
 
@@ -333,7 +363,7 @@ function linkStatements(env: Env, path: string, content: string): D1PreparedStat
   }
   return [
     env.DB.prepare("DELETE FROM links WHERE src = ?").bind(path),
-    ...[...targets].slice(0, 500).map((dst) => env.DB.prepare("INSERT OR IGNORE INTO links (src, dst) VALUES (?, ?)").bind(path, dst)),
+    ...[...targets].slice(0, settings(env).MAX_LINKS_PER_NOTE).map((dst) => env.DB.prepare("INSERT OR IGNORE INTO links (src, dst) VALUES (?, ?)").bind(path, dst)),
   ];
 }
 

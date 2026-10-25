@@ -19,5 +19,21 @@
       "migrations_dir": "migrations"
     }
   ],
+  // アプリの設定値（変更したら再デプロイで反映）。シークレットは vars ではなく `wrangler secret put` で設定する
+  "vars": {
+    // ---- デバイス認証 ----
+    "DEVICE_TTL_DAYS": 90,                // この日数使われなかった承認済みデバイスは自動で削除
+    "COOKIE_MAX_AGE_DAYS": 400,           // デバイス Cookie の有効期限（ブラウザ側の上限が 400 日）
+    "MAX_PENDING_DEVICES": 10,            // 同時に存在できる承認待ちデバイスの数
+    "PENDING_DEVICE_TTL_HOURS": 24,       // 承認されなかったデバイスを削除するまでの時間
+    "BOOTSTRAP_MAX_FAILURES_PER_HOUR": 10, // ブートストラップの失敗がこの回数に達すると 1 時間ロック
+    "APPROVAL_POLL_SECONDS": 5,           // 承認待ち画面が承認状態を確認する間隔
+    // ---- ノート ----
+    "AUTOSAVE_DELAY_MS": 800,             // 入力が止まってから自動保存するまでの時間
+    "MAX_NOTE_CHARS": 1000000,            // 1 ノートの最大文字数（D1 の 1 行の上限は 2MB）
+    "MAX_LINKS_PER_NOTE": 500,            // 1 ノートから記録する [[リンク]] の最大数
+    "REVISION_INTERVAL_MINUTES": 10,      // 通常の編集で履歴を残す最短間隔
+    "MAX_REVISIONS_PER_NOTE": 50          // ノートごとに残す履歴の数
+  },
   "observability": { "enabled": true }
 }

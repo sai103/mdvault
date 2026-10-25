@@ -59,6 +59,28 @@ npm run db:migrate:local
 npm run dev                      # http://localhost:8787
 ```
 
+## 設定
+
+数値の設定はすべて `wrangler.jsonc` の `vars` にあります。変更したら `npm run deploy` で反映されます
+（ローカルでは `wrangler dev` を再起動）。値が未設定または不正（0 以下・数値でない）のときは、API がその設定名を含むエラーを返します。
+
+| 設定 | 既定値 | 内容 |
+| --- | --- | --- |
+| `DEVICE_TTL_DAYS` | 90 | この日数使われなかった承認済みデバイスを自動で削除 |
+| `COOKIE_MAX_AGE_DAYS` | 400 | デバイス Cookie の有効期限（ブラウザ側の上限が 400 日） |
+| `MAX_PENDING_DEVICES` | 10 | 同時に存在できる承認待ちデバイスの数 |
+| `PENDING_DEVICE_TTL_HOURS` | 24 | 承認されなかったデバイスを削除するまでの時間 |
+| `BOOTSTRAP_MAX_FAILURES_PER_HOUR` | 10 | ブートストラップの失敗がこの回数に達すると 1 時間ロック |
+| `APPROVAL_POLL_SECONDS` | 5 | 承認待ち画面が承認状態を確認する間隔 |
+| `AUTOSAVE_DELAY_MS` | 800 | 入力が止まってから自動保存するまでの時間 |
+| `MAX_NOTE_CHARS` | 1000000 | 1 ノートの最大文字数（D1 の 1 行の上限は 2MB） |
+| `MAX_LINKS_PER_NOTE` | 500 | 1 ノートから記録する `[[リンク]]` の最大数 |
+| `REVISION_INTERVAL_MINUTES` | 10 | 通常の編集で履歴を残す最短間隔 |
+| `MAX_REVISIONS_PER_NOTE` | 50 | ノートごとに残す履歴の数 |
+
+`BOOTSTRAP_SECRET` だけはシークレットなので `vars` ではなく `wrangler secret put`（ローカルは `.dev.vars`）で設定します。
+以下の説明に出てくる数値は既定値です。
+
 ## デプロイ
 
 ```bash
