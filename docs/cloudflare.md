@@ -37,8 +37,10 @@ Worker のサイズは圧縮後約 130KB です（無料プランの上限は 3M
 
 ## デプロイ
 
+手元に Node.js などの準備ができていない場合は、先に [docs/local-development.md](local-development.md) の 1〜3 を行ってください。
+
 ```bash
-npm install
+npm ci
 npx wrangler login
 npx wrangler d1 create mdvault
 # 出力された database_id を wrangler.jsonc の d1_databases[0].database_id に書く

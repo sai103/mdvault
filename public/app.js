@@ -52,9 +52,9 @@ async function boot() {
   $("#gate-pending").hidden = dev.status !== "pending";
   $("#gate-passkey-setup").hidden = dev.auth !== "setup";
   $("#gate-passkey-login").hidden = dev.auth !== "login";
-  if (dev.auth && !SimpleWebAuthnBrowser.browserSupportsWebAuthn()) {
-    $("#gate-error").textContent = "このブラウザはパスキーに対応していません";
-  }
+  // 登録の前から出しておく（承認まで進んでからパスキーで失敗しないように）
+  const passkeyProblem = passkeyEnvironmentProblem();
+  if (passkeyProblem) $("#gate-error").textContent = passkeyProblem;
   if (dev.status === "pending") {
     $("#pair-code").textContent = dev.pair_code;
     $("#bootstrap-section").hidden = !dev.bootstrap_available;
@@ -80,6 +80,16 @@ async function loginWithPasskey() {
   const optionsJSON = await api("POST", "/api/passkey/login/options");
   const response = await SimpleWebAuthnBrowser.startAuthentication({ optionsJSON }).catch(passkeyError);
   await api("POST", "/api/passkey/login/verify", { response });
+}
+
+// パスキーはドメイン名に結びつき、HTTPS か localhost でしか使えない
+function passkeyEnvironmentProblem() {
+  if (/^(\d+\.){3}\d+$|^\[[0-9a-f:.]+\]$/i.test(location.hostname)) {
+    return `IP アドレス（${location.hostname}）ではパスキーを使えません。この PC で開発しているなら http://localhost${location.port ? ":" + location.port : ""} で開いてください`;
+  }
+  if (!window.isSecureContext) return "パスキーは HTTPS か localhost でしか使えません";
+  if (!SimpleWebAuthnBrowser.browserSupportsWebAuthn()) return "このブラウザはパスキーに対応していません";
+  return "";
 }
 
 function passkeyError(e) {

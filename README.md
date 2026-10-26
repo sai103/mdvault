@@ -70,13 +70,15 @@ Cookie は HTTPS では `__Host-mdv_device` / `__Host-mdv_session`（`HttpOnly; 
 
 ## セットアップ
 
-```bash
-npm install
+自分の PC で動かす手順（必要なもの・Windows / macOS / Linux 別のコマンド・最初のログイン・うまくいかないとき）は
+**[docs/local-development.md](docs/local-development.md)** にあります。Cloudflare のアカウントは不要です。概要は次のとおりです（Node.js 22 以上が必要）。
 
-# ローカル開発
-cp .dev.vars.example .dev.vars   # BOOTSTRAP_SECRET を設定
+```bash
+npm ci
+cp .dev.vars.example .dev.vars   # Windows の PowerShell では Copy-Item .dev.vars.example .dev.vars
 npm run db:migrate:local
-npm run dev                      # http://localhost:8787（D1・R2 はローカルで再現される）
+npm run dev                      # http://localhost:8787 を開く（IP アドレスではパスキーが使えない）
+npm run db:reset:local           # ローカルのデータを全部消してやり直す
 
 # テスト・検査（push すると GitHub Actions でも実行される）
 npx tsc                          # 型チェック
@@ -227,6 +229,8 @@ public/                 フロントエンド（ビルド不要の素の JS）
   vendor/               marked / DOMPurify / SimpleWebAuthn（npm run vendor で node_modules からコピー。git 管理外）
 migrations/             D1 のスキーマ（番号順に適用）
 tests/                  認可・セキュリティのテスト（vitest + @cloudflare/vitest-pool-workers）
+scripts/                画面用ライブラリのコピー・ローカルデータの削除（npm run vendor / db:reset:local から呼ぶ）
+docs/local-development.md  ローカル開発環境の構築手順
 docs/cloudflare.md      Cloudflare 側の構成・費用・デプロイ・運用
 docs/security.md        セキュリティの前提・脅威モデル・権限表・対策・検査方法・残存リスク
 docs/security-review/   セキュリティレビューの記録

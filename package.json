@@ -3,8 +3,9 @@
   "version": "1.0.0",
   "description": "Cloudflare 上で動く個人用 Markdown ノートアプリ (Obsidian 風)",
   "scripts": {
-    "vendor": "mkdir -p public/vendor && cp node_modules/marked/lib/marked.esm.js public/vendor/marked.js && cp node_modules/dompurify/dist/purify.es.mjs public/vendor/purify.js && cp node_modules/@simplewebauthn/browser/dist/bundle/index.umd.min.js public/vendor/simplewebauthn.js",
+    "vendor": "node scripts/vendor.mjs",
     "db:migrate:local": "wrangler d1 migrations apply mdvault --local",
+    "db:reset:local": "node scripts/reset-local.mjs && npm run db:migrate:local",
     "db:migrate": "wrangler d1 migrations apply mdvault --remote",
     "dev": "npm run vendor && wrangler dev",
     "deploy": "npm run vendor && wrangler deploy",
@@ -27,5 +28,8 @@
     "dompurify": "^3.4.17",
     "marked": "^15.0.12"
   },
-  "private": true
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  }
 }
