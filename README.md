@@ -250,3 +250,9 @@ wrangler.jsonc          Worker・D1・R2・設定値（vars）
 - Obsidian の Vault（.md ファイル群）のインポート / エクスポート
 - オフライン対応（PWA）
 - エディタを CodeMirror にしてライブプレビュー化
+
+## ライセンス
+
+[0BSD](LICENSE)（BSD Zero Clause License）です。著作権表示も不要で、利用・改変・再配布・販売を含めて自由に使えます。無保証です。
+
+デプロイ時に `public/vendor/` へコピーされるライブラリは、それぞれのライセンスに従います（marked: MIT、DOMPurify: MPL-2.0 または Apache-2.0、SimpleWebAuthn: MIT）。

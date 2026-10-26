@@ -13,7 +13,7 @@
     "audit": "npm audit --omit=dev"
   },
   "author": "",
-  "license": "ISC",
+  "license": "0BSD",
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.23.0",
     "@cloudflare/workers-types": "^5.20261025.1",

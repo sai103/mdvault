@@ -54,8 +54,6 @@ npm run deploy
 
 - `database_id` は公開されても、それだけではデータを読み書きできません（Cloudflare アカウントの認証が必要）
 - 2 回目以降の更新は `npm run deploy` だけで反映されます。`migrations/` に新しいファイルが増えたときは、先に `npm run db:migrate` を実行してください
-- 2026-10-25 のセキュリティ対応より前にデプロイしていた場合は、`npm run db:migrate` の後にデプロイしてください。Cookie の名前が `__Host-` 付きに変わったため、**すべてのデバイスで登録からやり直し**になります（承認済みデバイスが 0 台になるので、下記「デバイスやパスキーをすべて失ったとき」のコマンドでデバイスを削除してからブートストラップします。パスキーとノートはそのまま使えます）
-- 画像の添付機能を追加する前にデプロイしていた場合は、`npx wrangler r2 bucket create mdvault-files` と `npm run db:migrate` を実行してから `npm run deploy` してください
 
 ### 設定値とシークレット
 
