@@ -1,0 +1,38 @@
+/* エディタ（CodeMirror）の見た目。CSP（style-src 'self'）を緩めずに使うため、エディタは Shadow DOM の中にあり、
+   このファイルはその中で読み込む。色などはページの CSS 変数（style.css）を引き継ぐ。
+   CodeMirror の既定の見た目（.ͼ1 .cm-xxx）より優先させるため、:host .cm-editor から書く */
+:host { display: flex; flex: 1; min-width: 0; min-height: 0; }
+:host .cm-editor { flex: 1; height: 100%; background: var(--bg); color: var(--text); }
+:host .cm-editor.cm-focused { outline: none; }
+:host .cm-editor .cm-scroller { font-family: var(--editor-font); font-size: var(--font-size); line-height: 1.7; }
+:host .cm-editor .cm-content { max-width: 760px; margin: 0 auto; padding: 24px; caret-color: var(--text); }
+:host .cm-editor .cm-line { padding: 0; }
+:host .cm-editor .cm-cursor { border-left-color: var(--text) !important; }
+:host .cm-editor .cm-selectionBackground, :host .cm-editor .cm-focused .cm-selectionBackground { background: var(--selection) !important; }
+:host .cm-editor .cm-placeholder { color: var(--muted); }
+:host .cm-editor .cm-h { font-weight: 700; }
+:host .cm-editor .cm-h1 { font-size: 1.6em; }
+:host .cm-editor .cm-h2 { font-size: 1.35em; }
+:host .cm-editor .cm-h3 { font-size: 1.15em; }
+:host .cm-editor .cm-md-mark { color: var(--muted); }
+:host .cm-editor .cm-md-code { font-family: var(--mono); background: var(--code-bg); border-radius: 3px; font-size: 0.92em; }
+:host .cm-editor .cm-md-quote { color: var(--muted); font-style: italic; }
+:host .cm-editor .cm-md-link, :host .cm-editor .cm-wikilink { color: var(--link); }
+:host .cm-editor .cm-md-url { color: var(--muted); }
+:host .cm-editor .cm-searchMatch { background: var(--mark); }
+:host .cm-editor .cm-panels { background: var(--bg-side); color: var(--text); border-color: var(--border); }
+:host .cm-editor .cm-panels input, :host .cm-editor .cm-panels button { font-size: 13px; }
+:host .cm-editor .cm-tooltip { background: var(--bg-side); color: var(--text); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 24px #0006; }
+:host .cm-editor .cm-tooltip-autocomplete > ul > li { padding: 3px 10px; }
+:host .cm-editor .cm-tooltip-autocomplete > ul > li[aria-selected] { background: var(--accent); color: #fff; }
+:host .cm-editor .cm-completionDetail { color: var(--muted); margin-left: 8px; font-style: normal; }
+:host .cm-editor .cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionDetail { color: #fffc; }
+
+:host .cm-editor .cm-frontmatter, :host .cm-editor .cm-frontmatter * {
+  color: var(--muted) !important;
+  font-family: var(--mono);
+  font-size: 0.9em !important;
+  font-weight: normal !important;
+  font-style: normal !important;
+  text-decoration: none !important;
+}

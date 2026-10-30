@@ -27,6 +27,7 @@ const ENDPOINTS: [Level, string, string, { body?: unknown; raw?: BodyInit; heade
   ["session", "POST", "/api/note/restore", { body: { id: 1 } }],
   ["session", "GET", "/api/revisions?path=a.md"],
   ["session", "GET", "/api/revision?id=1"],
+  ["session", "DELETE", "/api/revisions?path=a.md"],
   ["session", "GET", "/api/trash"],
   ["session", "GET", "/api/backlinks?path=a.md"],
   ["session", "GET", "/api/search?q=x"],
@@ -39,6 +40,16 @@ const ENDPOINTS: [Level, string, string, { body?: unknown; raw?: BodyInit; heade
   ["session", "POST", "/api/attachments?name=a.png", { raw: PNG, headers: { "content-type": "image/png" } }],
   ["session", "DELETE", "/api/attachments?path=none"],
   ["session", "GET", "/api/attachment?path=none"],
+  ["session", "POST", "/api/folders", { body: { path: "f" } }],
+  ["session", "POST", "/api/folder/rename", { body: { from: "f", to: "g" } }],
+  ["session", "DELETE", "/api/folder?path=f"],
+  ["session", "GET", "/api/links"],
+  ["session", "GET", "/api/tags"],
+  ["session", "POST", "/api/import/notes", { body: { notes: [] } }],
+  ["session", "GET", "/api/export"],
+  ["session", "GET", "/api/backups"],
+  ["session", "POST", "/api/backups"],
+  ["session", "GET", "/api/backup?key=_mdvault/backups/2026-01-01.json.gz"],
 ];
 
 describe("認可マトリクス", () => {

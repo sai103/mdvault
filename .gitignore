@@ -1,9 +1,13 @@
 # 依存パッケージ・ビルド・ローカルの実行環境
 node_modules/
 .wrangler/
-# npm run vendor で node_modules から生成する第三者のライブラリ（Git には入れない）
+# npm run build で client/ とライブラリから生成する（Git には入れない）
+public/build/
 public/vendor/
 coverage/
+# 画面の E2E テストの結果
+test-results/
+playwright-report/
 
 # 秘密情報（BOOTSTRAP_SECRET など）。見本の .dev.vars.example だけは管理する
 .dev.vars

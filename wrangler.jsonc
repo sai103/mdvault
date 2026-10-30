@@ -38,13 +38,25 @@
     "MAX_LINKS_PER_NOTE": 500,            // 1 ノートから記録する [[リンク]] の最大数
     "REVISION_INTERVAL_MINUTES": 10,      // 通常の編集で履歴を残す最短間隔
     "MAX_REVISIONS_PER_NOTE": 50,         // ノートごとに残す履歴の数
+    "MAX_TAGS_PER_NOTE": 100,             // 1 ノートから記録する #タグ の最大数
+    "MAX_NOTES_PER_BULK_OPERATION": 500,  // フォルダの名前変更・削除、取り込み 1 回で扱えるノートの数
+    "DAILY_NOTE_FOLDER": "daily",         // 「今日のノート」を作るフォルダ（ファイル名は YYYY-MM-DD）
+    "TEMPLATE_FOLDER": "templates",       // テンプレートを置くフォルダ
+    "DAILY_NOTE_TEMPLATE": "daily",       // 「今日のノート」に使うテンプレート名（TEMPLATE_FOLDER の中。無ければ空のノート）
+    "ENCRYPTION_PBKDF2_ITERATIONS": 600000, // ノートを暗号化するとき、パスフレーズから鍵を作る計算の回数（ブラウザで計算する）
+    // ---- バックアップ ----
+    "BACKUP_RETENTION_DAYS": 30,          // 毎日の自動バックアップを残す日数
     // ---- 添付ファイル（画像） ----
     "MAX_ATTACHMENT_MB": 10,              // 1 ファイルの最大サイズ（MB）
+    "IMAGE_MAX_DIMENSION": 2560,          // これより大きい写真は、アップロード前にブラウザで縮小する（長い辺のピクセル数）
+    "IMAGE_QUALITY_PERCENT": 85,          // 縮小した JPEG / WebP の画質
     "ATTACHMENT_FOLDER": "attachments"    // 画像を保存するフォルダ（ノートからは ![[ファイル名]] で参照）
   },
   // 添付画像の保存先。`npx wrangler r2 bucket create mdvault-files` で作成する
   "r2_buckets": [
     { "binding": "FILES", "bucket_name": "mdvault-files" }
   ],
+  // 毎日の自動バックアップ（UTC。18:17 は日本時間の 3:17）
+  "triggers": { "crons": ["17 18 * * *"] },
   "observability": { "enabled": true }
 }

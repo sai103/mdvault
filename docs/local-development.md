@@ -74,7 +74,7 @@ npm run db:migrate:local
 ```
 
 `migrations/` の SQL が順番に適用され、`.wrangler/state/` にローカルの D1 が作られます。
-`About to apply 5 migration(s) … continue?` と聞かれたら `y` を押します。
+`About to apply 6 migration(s) … continue?` と聞かれたら `y` を押します。
 
 ## 6. 起動する
 
@@ -82,6 +82,7 @@ npm run db:migrate:local
 npm run dev
 ```
 
+画面のコード（`client/`）を `public/build/app.js` にまとめてから、Wrangler が起動します。
 `Ready on http://localhost:8787` と出たら、ブラウザで **http://localhost:8787** を開きます。止めるときは `Ctrl + C` です。
 
 > **`127.0.0.1` や `192.168.x.x` ではなく、必ず `localhost` で開いてください。** パスキーはドメイン名に結びつく仕組みで、IP アドレスでは作れません。
@@ -100,23 +101,29 @@ npm run dev
 
 ## 8. 開発の進め方
 
-- **コード（`src/`）を変更**すると、Wrangler が自動で Worker を再読み込みします
-- **画面（`public/`）を変更**したら、ブラウザを再読み込みします
+- **サーバーのコード（`src/`）を変更**すると、Wrangler が自動で Worker を再読み込みします
+- **画面のコード（`client/`）を変更**すると、自動で `public/build/app.js` が作り直されます。ブラウザを再読み込みしてください
+- **`public/` の HTML・CSS を変更**したら、ブラウザを再読み込みします
+- 画面が古いまま変わらないときは、Service Worker のキャッシュが残っていることがあります。ブラウザの開発者ツールの「Application」→「Service Workers」で「Update on reload」をオンにするか、スーパーリロード（`Ctrl + Shift + R`）してください
 - **設定（`wrangler.jsonc` の `vars`）を変更**したら、`npm run dev` を止めて起動し直します
-- **一時的に設定を変えて試す**: `npx wrangler dev --var 設定名:値` で起動します（例: 本人確認の有効時間を短くして試す `npx wrangler dev --var REAUTH_WINDOW_MINUTES:0.1`）
-  - この場合は `npm run dev` を経由しないので、先に一度 `npm run vendor` を実行しておきます
+- **一時的に設定を変えて試す**: `npm run dev -- --var 設定名:値` で起動します（例: 本人確認の有効時間を短くして試す `npm run dev -- --var REAUTH_WINDOW_MINUTES:0.1`）
+- **毎日の自動バックアップを試す**: ローカルでは自動では動きません。`npm run dev` を起動したまま、別のターミナルで `curl "http://localhost:8787/cdn-cgi/local/scheduled"` を実行します（画面の 🗄 の「今すぐバックアップ」でも作れます）
 - **DB のテーブルを変更**するときは、`migrations/` に新しい番号の SQL を追加して `npm run db:migrate:local` を実行します
-- **画面のライブラリ（marked・DOMPurify・SimpleWebAuthn）を更新**したら、`npm run vendor` で `public/vendor/` にコピーし直します（`npm run dev` でも自動で実行されます）
+- **画面のファイルだけを作る**: `npm run build`（`npm run dev` と `npm run deploy` は自動で実行します）
 
 ## 9. テストと検査
 
 ```bash
 npx tsc            # 型チェック
-npm test           # 認可・セキュリティのテスト
+npm test           # Worker のテスト（認可・セキュリティ・各機能）
+npm run test:e2e   # 画面の E2E テスト（ブラウザで実際に操作する）
 npm run audit      # 本番で使う依存パッケージの既知の脆弱性
 ```
 
-`npm test` は、開発サーバーとは別の、テスト専用の一時的な D1・R2 を使います。`npm run dev` を起動していなくても動き、ローカルのデータにも影響しません。
+- `npm test` は、開発サーバーとは別の、テスト専用の一時的な D1・R2 を使います。`npm run dev` を起動していなくても動き、ローカルのデータにも影響しません
+- `npm run test:e2e` は、テスト用のサーバー（ポート 8788、データは `.wrangler/e2e/`）を自分で起動して、Chromium で画面を操作します。パスキーは Chromium の仮想認証器で代用します。
+  初めて実行する前に、テスト用のブラウザを入れてください: `npx playwright install chromium`（Linux で必要なライブラリが足りない場合は `npx playwright install --with-deps chromium`）
+  - 失敗したときは `test-results/` に画面の様子（スクリーンショット・操作の記録）が残ります。`npx playwright show-trace test-results/…/trace.zip` で見られます
 同じ内容が GitHub に push したときにも自動で実行されます（`.github/workflows/ci.yml`）。
 
 セキュリティの確認方法の詳細は [docs/security.md](security.md) を参照してください。
@@ -167,6 +174,9 @@ npm run db:reset:local
 | 「パスキーは HTTPS か localhost でしか使えません」 | 他の端末から IP アドレスで開いている。「11. スマートフォンなど他の端末から試す」を参照 |
 | パスキーの登録・ログインの画面が出ない、失敗する | Linux ではパソコン自体にパスキーを保存できないことが多いので、スマートフォン（QR コード）や USB セキュリティキー、パスワードマネージャーを使う |
 | 「このブラウザはパスキーに対応していません」 | ブラウザを最新版にする |
-| 画像が表示されない・画面が真っ白 | `public/vendor/` がない。`npm run vendor` を実行する（`npm run dev` なら自動） |
+| 画面が真っ白・`/build/app.js` が見つからない | `public/build/` がない。`npm run build` を実行する（`npm run dev` なら自動） |
+| 画面を変更したのに反映されない | Service Worker のキャッシュ。スーパーリロード（`Ctrl + Shift + R`）する。「8. 開発の進め方」も参照 |
+| `npm run test:e2e` で `Executable doesn't exist` | テスト用のブラウザが入っていない。`npx playwright install chromium` |
+| `npm run test:e2e` で `Address already in use`（8788） | 前回のテスト用サーバーが残っている。止めるか、PC を再起動する |
 | `wrangler d1 execute --local` が終わらない | `npm run dev` を止めてから実行する |
 | ターミナルに `Unable to fetch the Request.cf object!` と出る | インターネットに接続できないときの警告。ローカルでの動作には影響しない |

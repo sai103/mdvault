@@ -1,8 +1,10 @@
 import {
-  DAY, HttpError, body, getCookie, json, randomHex, setCookie, settings, sha256, timingSafeEqual, type Device, type Env,
+  DAY, HttpError, body, getCookie, json, randomHex, setCookie, settings, sha256, textSetting, timingSafeEqual, type Device, type Env,
 } from "./common";
 import { currentSession, handlePasskeyApi, passkeyCount, requireRecentAuth } from "./passkey";
 import { handleAttachmentApi } from "./attachments";
+import { createBackup, handleBackupApi, pruneBackups } from "./backup";
+import { handleNotesApi } from "./notes";
 
 const COOKIE = "mdv_device";
 
@@ -17,6 +19,11 @@ export default {
       console.error(e);
       return json({ error: "internal error" }, 500);
     }
+  },
+
+  // 毎日の自動バックアップ（wrangler.jsonc の triggers.crons）
+  async scheduled(_controller, env, ctx) {
+    ctx.waitUntil(createBackup(env).then(() => pruneBackups(env)));
   },
 } satisfies ExportedHandler<Env>;
 
@@ -36,6 +43,14 @@ async function handleApi(req: Request, url: URL, env: Env): Promise<Response> {
         approval_poll_seconds: s.APPROVAL_POLL_SECONDS,
         revision_interval_minutes: s.REVISION_INTERVAL_MINUTES,
         max_attachment_mb: s.MAX_ATTACHMENT_MB,
+        image_max_dimension: s.IMAGE_MAX_DIMENSION,
+        image_quality_percent: s.IMAGE_QUALITY_PERCENT,
+        encryption_pbkdf2_iterations: s.ENCRYPTION_PBKDF2_ITERATIONS,
+        max_notes_per_bulk_operation: s.MAX_NOTES_PER_BULK_OPERATION,
+        attachment_folder: textSetting(env, "ATTACHMENT_FOLDER"),
+        daily_note_folder: textSetting(env, "DAILY_NOTE_FOLDER"),
+        template_folder: textSetting(env, "TEMPLATE_FOLDER"),
+        daily_note_template: textSetting(env, "DAILY_NOTE_TEMPLATE"),
       };
       if (device?.status === "approved") {
         // auth: ok = ログイン済み / login = パスキーでログインが必要 / setup = 最初のパスキーを登録する
@@ -64,8 +79,9 @@ async function handleApi(req: Request, url: URL, env: Env): Promise<Response> {
 
   if (!session) throw new HttpError(401, "login required");
 
-  const attachmentResponse = await handleAttachmentApi(route, req, url, env);
-  if (attachmentResponse) return attachmentResponse;
+  const response = (await handleAttachmentApi(route, req, url, env)) ?? (await handleNotesApi(route, req, url, env)) ??
+    (await handleBackupApi(route, url, env));
+  if (response) return response;
 
   // ---- 承認済みデバイス + パスキーでログイン済み ----
   switch (route) {
@@ -94,76 +110,6 @@ async function handleApi(req: Request, url: URL, env: Env): Promise<Response> {
         env.DB.prepare("DELETE FROM sessions WHERE device_id = ?").bind(id),
       ]);
       return json({ ok: true });
-    }
-
-    case "GET /api/notes": {
-      const { results } = await env.DB.prepare("SELECT path, updated_at FROM notes ORDER BY path").all();
-      return json({ notes: results });
-    }
-    case "GET /api/note": {
-      const path = checkPath(url.searchParams.get("path"));
-      const note = await env.DB.prepare("SELECT path, content, updated_at FROM notes WHERE path = ?").bind(path).first();
-      if (!note) throw new HttpError(404, "not found");
-      return json(note);
-    }
-    case "PUT /api/note":
-      return saveNote(req, env);
-    case "DELETE /api/note": {
-      const path = checkPath(url.searchParams.get("path"));
-      const note = await env.DB.prepare("SELECT content, updated_at FROM notes WHERE path = ?").bind(path).first<{ content: string; updated_at: number }>();
-      if (!note) throw new HttpError(404, "not found");
-      // 削除したノートはゴミ箱（reason = 'delete' の版）から復元できる
-      await env.DB.batch([
-        ...revisionStatements(env, path, note.content, "delete", note.updated_at),
-        env.DB.prepare("DELETE FROM notes WHERE path = ?").bind(path),
-        env.DB.prepare("DELETE FROM links WHERE src = ?").bind(path),
-      ]);
-      return json({ ok: true });
-    }
-    case "POST /api/note/rename":
-      return renameNote(req, env);
-    case "POST /api/note/restore":
-      return restoreRevision(req, env);
-    case "GET /api/revisions": {
-      const path = checkPath(url.searchParams.get("path"));
-      const { results } = await env.DB.prepare(
-        "SELECT id, reason, saved_at, created_at, length(content) AS size FROM note_revisions WHERE path = ? ORDER BY id DESC",
-      ).bind(path).all();
-      return json({ revisions: results });
-    }
-    case "GET /api/revision": {
-      const rev = await env.DB.prepare("SELECT id, path, content, reason, saved_at FROM note_revisions WHERE id = ?")
-        .bind(Number(url.searchParams.get("id"))).first();
-      if (!rev) throw new HttpError(404, "not found");
-      return json(rev);
-    }
-    case "GET /api/trash": {
-      // 削除された後、同じパスで作り直されていないノート
-      const { results } = await env.DB.prepare(
-        `SELECT r.id, r.path, r.created_at AS deleted_at FROM note_revisions r
-           WHERE r.reason = 'delete' AND r.path NOT IN (SELECT path FROM notes)
-             AND r.id = (SELECT max(id) FROM note_revisions WHERE path = r.path AND reason = 'delete')
-           ORDER BY r.id DESC`,
-      ).all();
-      return json({ trash: results });
-    }
-    case "GET /api/backlinks": {
-      const path = checkPath(url.searchParams.get("path"));
-      const { results } = await env.DB.prepare(
-        "SELECT DISTINCT src AS path FROM links WHERE dst IN (?, ?) AND src != ? ORDER BY src",
-      ).bind(linkKey(path), linkKey(basename(path)), path).all();
-      return json({ backlinks: results });
-    }
-    case "GET /api/search": {
-      const q = (url.searchParams.get("q") ?? "").trim();
-      if (!q) return json({ results: [] });
-      const like = `%${q.replace(/[\\%_]/g, (c) => "\\" + c)}%`;
-      const { results } = await env.DB.prepare(
-        `SELECT path, substr(content, max(instr(lower(content), lower(?1)) - 40, 1), 120) AS snippet
-           FROM notes WHERE path LIKE ?2 ESCAPE '\\' OR content LIKE ?2 ESCAPE '\\'
-           ORDER BY updated_at DESC LIMIT 50`,
-      ).bind(q, like).all();
-      return json({ results });
     }
   }
   throw new HttpError(404, "no such endpoint");
@@ -244,117 +190,4 @@ async function bootstrap(req: Request, env: Env, device: Device | null): Promise
   ).bind(device.id).run();
   if (!r.meta.changes) throw new HttpError(403, "承認済みのデバイスがあるため使えません。承認済みデバイスから承認してください");
   return json({ ok: true });
-}
-
-// ---------------- ノート ----------------
-
-async function saveNote(req: Request, env: Env): Promise<Response> {
-  const { path: rawPath, content, base_updated_at } = await body<{ path: string; content: string; base_updated_at?: number | null }>(req);
-  const path = checkPath(rawPath);
-  if (typeof content !== "string") throw new HttpError(400, "content must be a string");
-  const s = settings(env);
-  if (content.length > s.MAX_NOTE_CHARS) throw new HttpError(413, "ノートが大きすぎます");
-
-  const existing = await env.DB.prepare("SELECT content, updated_at FROM notes WHERE path = ?").bind(path)
-    .first<{ content: string; updated_at: number }>();
-  // 楽観的ロック: 他のデバイスで先に更新されていたら上書きしない（base_updated_at 省略時は強制上書き）
-  const force = base_updated_at === undefined;
-  if (!force && (existing?.updated_at ?? null) !== base_updated_at) {
-    throw new HttpError(409, "他のデバイスで更新されています");
-  }
-
-  // 上書き前の内容を版として残す。自動保存のたびに残さないよう、通常の編集は一定間隔ごと
-  const revisions: D1PreparedStatement[] = [];
-  if (existing && existing.content && existing.content !== content) {
-    const last = await env.DB.prepare("SELECT max(created_at) AS t FROM note_revisions WHERE path = ?").bind(path).first<number>("t");
-    if (force) revisions.push(...revisionStatements(env, path, existing.content, "overwrite", existing.updated_at));
-    else if (!last || Date.now() - last >= s.REVISION_INTERVAL_MINUTES * 60 * 1000) revisions.push(...revisionStatements(env, path, existing.content, "edit", existing.updated_at));
-  }
-
-  const now = Date.now();
-  await env.DB.batch([
-    ...revisions,
-    env.DB.prepare(
-      `INSERT INTO notes (path, content, created_at, updated_at) VALUES (?1, ?2, ?3, ?3)
-       ON CONFLICT (path) DO UPDATE SET content = ?2, updated_at = ?3`,
-    ).bind(path, content, now),
-    ...linkStatements(env, path, content),
-  ]);
-  return json({ path, updated_at: now });
-}
-
-async function renameNote(req: Request, env: Env): Promise<Response> {
-  const { from: rawFrom, to: rawTo } = await body<{ from: string; to: string }>(req);
-  const from = checkPath(rawFrom);
-  const to = checkPath(rawTo);
-  if (from === to) return json({ path: to });
-  if (await env.DB.prepare("SELECT 1 FROM notes WHERE path = ?").bind(to).first()) throw new HttpError(409, "同名のノートが既にあります");
-  const r = await env.DB.batch([
-    env.DB.prepare("UPDATE notes SET path = ?, updated_at = ? WHERE path = ?").bind(to, Date.now(), from),
-    env.DB.prepare("UPDATE links SET src = ? WHERE src = ?").bind(to, from),
-    env.DB.prepare("UPDATE note_revisions SET path = ? WHERE path = ?").bind(to, from),
-  ]);
-  if (!r[0].meta.changes) throw new HttpError(404, "not found");
-  return json({ path: to });
-}
-
-// 過去の版（またはゴミ箱のノート）を復元する。復元前の内容も版として残す
-async function restoreRevision(req: Request, env: Env): Promise<Response> {
-  const { id } = await body<{ id: number }>(req);
-  const rev = await env.DB.prepare("SELECT path, content FROM note_revisions WHERE id = ?").bind(id).first<{ path: string; content: string }>();
-  if (!rev) throw new HttpError(404, "not found");
-  const existing = await env.DB.prepare("SELECT content, updated_at FROM notes WHERE path = ?").bind(rev.path)
-    .first<{ content: string; updated_at: number }>();
-  const now = Date.now();
-  await env.DB.batch([
-    ...(existing && existing.content !== rev.content ? revisionStatements(env, rev.path, existing.content, "restore", existing.updated_at) : []),
-    env.DB.prepare(
-      `INSERT INTO notes (path, content, created_at, updated_at) VALUES (?1, ?2, ?3, ?3)
-       ON CONFLICT (path) DO UPDATE SET content = ?2, updated_at = ?3`,
-    ).bind(rev.path, rev.content, now),
-    ...linkStatements(env, rev.path, rev.content),
-  ]);
-  return json({ path: rev.path, updated_at: now });
-}
-
-function revisionStatements(env: Env, path: string, content: string, reason: string, savedAt: number): D1PreparedStatement[] {
-  return [
-    env.DB.prepare("INSERT INTO note_revisions (path, content, reason, saved_at, created_at) VALUES (?, ?, ?, ?, ?)")
-      .bind(path, content, reason, savedAt, Date.now()),
-    env.DB.prepare(
-      "DELETE FROM note_revisions WHERE path = ?1 AND id NOT IN (SELECT id FROM note_revisions WHERE path = ?1 ORDER BY id DESC LIMIT ?2)",
-    ).bind(path, settings(env).MAX_REVISIONS_PER_NOTE),
-  ];
-}
-
-function linkStatements(env: Env, path: string, content: string): D1PreparedStatement[] {
-  const targets = new Set<string>();
-  // コードブロック内のリンクは無視
-  const text = content.replace(/```[\s\S]*?```/g, "").replace(/`[^`\n]*`/g, "");
-  for (const m of text.matchAll(/!?\[\[([^\]\n]+?)\]\]/g)) {
-    const target = m[1].split("|")[0].split("#")[0].trim();
-    if (target) targets.add(linkKey(target));
-  }
-  return [
-    env.DB.prepare("DELETE FROM links WHERE src = ?").bind(path),
-    ...[...targets].slice(0, settings(env).MAX_LINKS_PER_NOTE).map((dst) => env.DB.prepare("INSERT OR IGNORE INTO links (src, dst) VALUES (?, ?)").bind(path, dst)),
-  ];
-}
-
-// Obsidian と同様、リンクは大文字小文字を区別せず、".md" は省略可能
-const linkKey = (s: string) => s.replace(/\.md$/i, "").toLowerCase();
-const basename = (p: string) => p.slice(p.lastIndexOf("/") + 1);
-
-function checkPath(p: unknown): string {
-  if (typeof p !== "string") throw new HttpError(400, "path is required");
-  const path = p.normalize("NFC").trim();
-  const ok =
-    path.length > 3 &&
-    path.length <= 512 &&
-    path.endsWith(".md") &&
-    !path.startsWith("/") &&
-    !/[\\:*?"<>|\x00-\x1f]/.test(path) &&
-    path.split("/").every((seg) => seg && seg !== "." && seg !== "..");
-  if (!ok) throw new HttpError(400, `不正なパス: ${path}`);
-  return path;
 }

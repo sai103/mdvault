@@ -1,4 +1,4 @@
-# push・プルリクエストのたびに、型チェック・セキュリティテスト・依存パッケージの脆弱性チェックを行う
+# push・プルリクエストのたびに、型チェック・テスト・依存パッケージの脆弱性・秘密情報の混入を確認する
 name: CI
 
 on:
@@ -10,8 +10,12 @@ on:
 permissions:
   contents: read
 
+env:
+  WRANGLER_SEND_METRICS: "false"
+
 jobs:
   test:
+    name: 型チェック・Worker のテスト・依存パッケージ
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -25,5 +29,41 @@ jobs:
       - run: npm ci
       - run: npx tsc
       - run: npm test
-      # 本番で使う依存（marked・DOMPurify・SimpleWebAuthn）に既知の脆弱性があれば失敗させる
+      # 本番で使う依存（marked・DOMPurify・SimpleWebAuthn・CodeMirror など）に既知の脆弱性があれば失敗させる
       - run: npm run audit
+      - run: npm run build
+
+  e2e:
+    name: 画面の E2E テスト（Chromium）
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+  secrets:
+    name: 秘密情報の混入（gitleaks）
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 履歴全体を調べるため
+          fetch-depth: 0
+          persist-credentials: false
+      # 見つかった値はログに出さない（--redact）
+      - run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.30.1 git /repo --redact --no-banner --verbose

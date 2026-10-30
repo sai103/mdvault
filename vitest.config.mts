@@ -14,5 +14,6 @@ export default defineConfig(async () => ({
       },
     }),
   ],
-  test: { setupFiles: ["./tests/setup.ts"] },
+  // e2e/ は Playwright（npm run test:e2e）で実行する
+  test: { include: ["tests/**/*.test.ts"], setupFiles: ["./tests/setup.ts"] },
 }));

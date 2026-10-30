@@ -1,4 +1,5 @@
 import { HttpError, json, settings, textSetting, type Env } from "./common";
+import { SYSTEM_PREFIX } from "./backup";
 
 // 受け付ける画像形式。ファイル名や Content-Type ではなく、先頭のバイト列で判定する
 // （SVG はスクリプトを含められるので受け付けない）
@@ -35,6 +36,8 @@ export async function handleAttachmentApi(route: string, req: Request, url: URL,
     }
     case "GET /api/attachment": {
       const path = url.searchParams.get("path") ?? "";
+      // バックアップなどアプリ用の領域は、画像の API からは読めない
+      if (path.startsWith(SYSTEM_PREFIX)) throw new HttpError(404, "not found");
       const object = await env.FILES.get(path, { onlyIf: req.headers });
       if (!object) throw new HttpError(404, "not found");
       const headers = new Headers({
@@ -68,7 +71,15 @@ async function upload(req: Request, url: URL, env: Env): Promise<Response> {
   const image = IMAGE_TYPES.find((t) => t.match(data));
   if (!image) throw new HttpError(415, "対応していない形式です（PNG / JPEG / GIF / WebP / AVIF のみ）");
 
-  const path = await uniquePath(env, textSetting(env, "ATTACHMENT_FOLDER"), fileName(url.searchParams.get("name"), image));
+  // path を指定したとき（Vault の取り込み）は、ノートからのリンクが切れないよう元のパスのまま保存する
+  const exact = url.searchParams.get("path");
+  let path: string;
+  if (exact !== null) {
+    path = checkAttachmentPath(exact);
+    if (await env.DB.prepare("SELECT 1 FROM attachments WHERE path = ?").bind(path).first()) throw new HttpError(409, `同じパスの画像が既にあります: ${path}`);
+  } else {
+    path = await uniquePath(env, textSetting(env, "ATTACHMENT_FOLDER"), fileName(url.searchParams.get("name"), image));
+  }
   await env.FILES.put(path, data, { httpMetadata: { contentType: image.type } });
   try {
     await env.DB.prepare("INSERT INTO attachments (path, content_type, size, created_at) VALUES (?, ?, ?, ?)")
@@ -109,6 +120,15 @@ async function uniquePath(env: Env, folder: string, name: string): Promise<strin
     const path = `${prefix}${i ? ` ${i}` : ""}${ext}`;
     if (!taken.has(path)) return path;
   }
+}
+
+function checkAttachmentPath(p: string): string {
+  const path = p.normalize("NFC").trim();
+  const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
+  const ok = path.length <= 512 && !path.startsWith("/") && !path.startsWith(SYSTEM_PREFIX) && !/[\\:*?"<>|\x00-\x1f]/.test(path) &&
+    path.split("/").every((seg) => seg && seg !== "." && seg !== "..") && IMAGE_TYPES.some((t) => t.exts.includes(ext));
+  if (!ok) throw new HttpError(400, `不正なパス: ${path}`);
+  return path;
 }
 
 const tooLarge = (env: Env) => new HttpError(413, `ファイルが大きすぎます（上限 ${settings(env).MAX_ATTACHMENT_MB}MB）`);

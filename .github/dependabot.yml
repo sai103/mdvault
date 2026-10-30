@@ -1,0 +1,18 @@
+# 依存パッケージの更新を自動で提案する（プルリクエストが作られ、CI で確認される）
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # CodeMirror など、まとめて更新したほうがよいもの
+      codemirror:
+        patterns: ["@codemirror/*", "@lezer/*", "codemirror"]
+      dev-tools:
+        dependency-type: development
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

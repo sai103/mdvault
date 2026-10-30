@@ -2,12 +2,18 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#ffffff">
   <title>mdvault</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon-192.png">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
+  <div id="offline-banner" class="offline-banner" hidden>オフラインです。一度開いたノートは読めます。編集はこの端末に保存し、接続が戻ったら送ります。</div>
+
   <!-- デバイス承認・ログイン画面 -->
   <div id="gate" class="gate" hidden>
     <div class="gate-card">
@@ -44,20 +50,35 @@
     <aside id="sidebar" class="sidebar">
       <div class="sidebar-head">
         <button id="new-note" title="新規ノート (Alt+N)">＋ ノート</button>
+        <button id="new-folder" title="新規フォルダ">📁</button>
+        <button id="open-daily" title="今日のノート (Alt+D)">📅</button>
         <button id="open-switcher" title="クイックスイッチャー (Ctrl+P)">⌕</button>
-        <button id="open-attachments" title="画像">🖼</button>
-        <button id="open-trash" title="ゴミ箱">♻</button>
-        <button id="open-devices" title="デバイスとパスキー">⚙</button>
       </div>
-      <input id="search" type="search" placeholder="全文検索…">
+      <div class="search-box">
+        <input id="search" type="search" placeholder="検索（tag: path: も使えます）">
+        <button id="search-help" class="icon" title="検索のしかた">?</button>
+      </div>
       <div id="search-results" class="search-results" hidden></div>
       <nav id="tree" class="tree"></nav>
+      <details id="tags-panel" class="tags-panel">
+        <summary>タグ<span id="tag-count" class="muted"></span></summary>
+        <ul id="tag-list" class="tag-list"></ul>
+      </details>
+      <div class="sidebar-foot">
+        <button id="open-graph" class="icon" title="グラフビュー">🕸</button>
+        <button id="open-attachments" class="icon" title="画像">🖼</button>
+        <button id="open-trash" class="icon" title="ゴミ箱">♻</button>
+        <button id="open-backups" class="icon" title="自動バックアップ">🗄</button>
+        <button id="open-vault" class="icon" title="取り込み・書き出し（Obsidian の Vault）">⇅</button>
+        <button id="open-prefs" class="icon" title="表示の設定">🎨</button>
+        <button id="open-devices" class="icon" title="デバイスとパスキー">⚙</button>
+      </div>
     </aside>
 
     <main class="main">
       <header class="toolbar">
         <button id="toggle-sidebar" class="icon" title="サイドバー">☰</button>
-        <input id="title" class="title" spellcheck="false" placeholder="ノートを選択">
+        <input id="title" class="title" spellcheck="false" placeholder="ノートを選択" aria-label="ノート名（変更すると名前が変わります）">
         <span id="status" class="status"></span>
         <div class="modes">
           <button data-mode="edit">編集</button>
@@ -66,19 +87,28 @@
         </div>
         <button id="attach-image" class="icon" title="画像を添付（貼り付け・ドラッグ&ドロップでも可）">📎</button>
         <input id="file-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/avif" multiple hidden>
+        <button id="insert-template" class="icon" title="テンプレートを挿入">📄</button>
+        <button id="toggle-encrypt" class="icon" title="このノートを暗号化">🔒</button>
         <button id="open-history" class="icon" title="履歴">🕘</button>
         <button id="delete-note" class="icon danger" title="削除">🗑</button>
-        <button id="toggle-right" class="icon" title="バックリンク">⇆</button>
+        <button id="toggle-right" class="icon" title="アウトライン・バックリンク">⇆</button>
       </header>
       <div id="workspace" class="workspace mode-split">
-        <div class="editor-wrap">
-          <textarea id="editor" spellcheck="false" placeholder="ここに Markdown を書く。[[ でリンク補完"></textarea>
-          <ul id="suggest" class="suggest" hidden></ul>
-        </div>
+        <div id="editor" class="editor-wrap"></div>
         <article id="preview" class="preview markdown"></article>
+        <form id="locked" class="locked" hidden>
+          <p class="lock-icon">🔒</p>
+          <p>このノートは暗号化されています。</p>
+          <div id="unlock-form-fields">
+            <input id="unlock-pass" type="password" autocomplete="off" placeholder="パスフレーズ" aria-label="パスフレーズ">
+            <button class="primary">開く</button>
+          </div>
+          <label class="check"><input id="unlock-remember" type="checkbox" checked> このタブを開いている間は覚えておく</label>
+          <p id="unlock-error" class="error"></p>
+        </form>
       </div>
       <div id="empty" class="empty">
-        <p>ノートがありません。「＋ ノート」から作成してください。</p>
+        <p>ノートがありません。「＋ ノート」から作成するか、「⇅」から Obsidian の Vault を取り込めます。</p>
       </div>
     </main>
 
@@ -90,10 +120,36 @@
     </aside>
   </div>
 
+  <!-- 右クリック・「⋯」のメニュー -->
+  <div id="context-menu" class="context-menu" hidden></div>
+
   <!-- クイックスイッチャー -->
   <dialog id="switcher" class="switcher">
     <input id="switcher-input" placeholder="ノート名を入力（Enter で開く / 新規作成）">
     <ul id="switcher-list"></ul>
+  </dialog>
+
+  <!-- 汎用の選択（テンプレートなど） -->
+  <dialog id="picker" class="switcher">
+    <h2 id="picker-title" class="picker-title"></h2>
+    <input id="picker-input">
+    <ul id="picker-list"></ul>
+  </dialog>
+
+  <!-- パスフレーズの入力 -->
+  <dialog id="passphrase-dialog" class="passphrase">
+    <form id="passphrase-form">
+      <h2 id="passphrase-title"></h2>
+      <p id="passphrase-message" class="hint"></p>
+      <label>パスフレーズ（8 文字以上） <input id="passphrase-1" type="password" autocomplete="new-password"></label>
+      <label id="passphrase-2-row">もう一度 <input id="passphrase-2" type="password" autocomplete="new-password"></label>
+      <label id="passphrase-option-row" class="check"><input id="passphrase-option" type="checkbox"> <span id="passphrase-option-label"></span></label>
+      <p id="passphrase-error" class="error"></p>
+      <div class="dialog-actions">
+        <button class="primary" value="ok">OK</button>
+        <button value="cancel" formnovalidate>キャンセル</button>
+      </div>
+    </form>
   </dialog>
 
   <!-- デバイス管理 -->
@@ -117,7 +173,7 @@
     </div>
   </dialog>
 
- <!-- 履歴 -->
+  <!-- 履歴 -->
   <dialog id="history" class="history">
     <h2>履歴</h2>
     <div class="history-body">
@@ -128,6 +184,24 @@
       </div>
     </div>
     <form method="dialog"><button>閉じる</button></form>
+  </dialog>
+
+  <!-- 自動バックアップ -->
+  <dialog id="backups" class="history">
+    <h2>自動バックアップ</h2>
+    <p id="backup-retention" class="hint"></p>
+    <div class="history-body backups-body">
+      <ul id="backup-list" class="revision-list"></ul>
+      <div class="backup-notes">
+        <input id="backup-filter" placeholder="ノートを絞り込み" hidden>
+        <ul id="backup-notes" class="revision-list"></ul>
+      </div>
+      <div id="backup-preview" class="revision-view"></div>
+    </div>
+    <div class="dialog-actions">
+      <button id="backup-now">今すぐバックアップ</button>
+      <form method="dialog"><button>閉じる</button></form>
+    </div>
   </dialog>
 
   <!-- 画像 -->
@@ -147,7 +221,52 @@
     <form method="dialog"><button>閉じる</button></form>
   </dialog>
 
-  <script src="/vendor/simplewebauthn.js"></script>
-  <script type="module" src="/app.js"></script>
+  <!-- 取り込み・書き出し -->
+  <dialog id="vault" class="devices">
+    <h2>取り込み・書き出し</h2>
+    <h3>書き出し</h3>
+    <p class="hint">すべてのノート・画像を zip にしてダウンロードします。Obsidian でそのまま Vault として開けます（暗号化したノートは暗号文のままです）。</p>
+    <button id="vault-export" class="primary">zip で書き出す</button>
+    <h3>取り込み</h3>
+    <p class="hint">Obsidian の Vault のフォルダを zip にしたものを選んでください。.md と画像（PNG / JPEG / GIF / WebP / AVIF）を取り込みます。.obsidian フォルダや隠しファイルは無視します。</p>
+    <label class="file-button">zip を選ぶ <input id="vault-import-file" type="file" accept=".zip,application/zip" hidden></label>
+    <label id="vault-overwrite-row" class="check" hidden><input id="vault-overwrite" type="checkbox"> 同じ名前のノートは上書きする（上書き前の内容は履歴に残ります）</label>
+    <button id="vault-import-start" class="primary" hidden>取り込む</button>
+    <p id="vault-progress" class="progress" hidden></p>
+    <form method="dialog" class="dialog-actions"><button>閉じる</button></form>
+  </dialog>
+
+  <!-- 表示の設定 -->
+  <dialog id="prefs" class="devices">
+    <h2>表示の設定</h2>
+    <p class="hint">この端末だけに保存されます。</p>
+    <form id="prefs-form" class="prefs-form" method="dialog">
+      <label>テーマ
+        <select name="theme"><option value="system">端末の設定に合わせる</option><option value="light">ライト</option><option value="dark">ダーク</option></select>
+      </label>
+      <label>文字の大きさ <span id="font-size-value"></span>
+        <input name="fontSize" type="range" min="12" max="22" step="1">
+      </label>
+      <label>エディタの文字
+        <select name="editorFont"><option value="sans">通常</option><option value="mono">等幅</option></select>
+      </label>
+      <label class="check"><input name="livePreview" type="checkbox"> 編集中も見出しや太字の記号を隠す（カーソルのある行だけ表示）</label>
+      <div class="dialog-actions"><button>閉じる</button></div>
+    </form>
+  </dialog>
+
+  <!-- グラフビュー -->
+  <dialog id="graph" class="graph">
+    <div class="dialog-actions">
+      <h2>グラフビュー</h2>
+      <label class="check"><input id="graph-local" type="checkbox"> 開いているノートの周りだけ</label>
+      <span id="graph-info" class="muted"></span>
+      <form method="dialog"><button>閉じる</button></form>
+    </div>
+    <canvas id="graph-canvas"></canvas>
+    <p class="hint">点をクリックで開く・ドラッグで移動・ホイールで拡大縮小</p>
+  </dialog>
+
+  <script type="module" src="/build/app.js"></script>
 </body>
 </html>

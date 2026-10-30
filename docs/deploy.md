@@ -110,7 +110,7 @@ npx wrangler r2 bucket create mdvault-files --binding FILES
 npm run db:migrate
 ```
 
-`About to apply 5 migration(s) … continue?` と聞かれたら `y` を押します。表の各行に ✅ が付けば完了です。
+`About to apply 6 migration(s) … continue?` と聞かれたら `y` を押します。表の各行に ✅ が付けば完了です。
 
 ## 7. アプリを公開する（デプロイ）
 
@@ -179,7 +179,9 @@ npx wrangler secret put BOOTSTRAP_SECRET
 
 - [ ] **Cloudflare Access を有効にする**: アプリの前にもう一段ログインを挟み、知らない人がアプリの画面に届かないようにします。Worker の設定画面（Settings → Domains & Routes）で、workers.dev の「Cloudflare Access」を有効にします（無料。画面の場所は変わることがあります）
 - [ ] **2FA が有効になっているか確認する**（手順 1）
-- [ ] **バックアップの方法を決める**: `npx wrangler d1 export mdvault --remote --output backup.sql` でノートを書き出せます（`backup.sql` には全ノートが入るので、扱いに注意。`.gitignore` 済み）
+- [ ] **バックアップを確認する**: 毎日 1 回（日本時間の 3:17）、自動でバックアップされます（画面の 🗄 で確認・今すぐ作成）。
+  Cloudflare のアカウントごと失ったときに備えて、ときどき「⇅ 取り込み・書き出し」で zip に書き出して手元にも保管してください（zip には全ノートが入るので、保管場所に注意）
+- [ ] **スマートフォンのホーム画面に追加する**（任意）: ブラウザのメニューの「ホーム画面に追加」で、アプリのように開けます
 - [ ] **ログの扱いを決める**: ノートのパスや検索語が Cloudflare のログに残ります。不要なら `wrangler.jsonc` の `observability` を `false` にしてデプロイし直します
 
 ---
@@ -223,7 +225,7 @@ npm run deploy
 **削除するとノートと画像は元に戻せません。** 必要なら先にバックアップを取ってください。
 
 ```bash
-npx wrangler d1 export mdvault --remote --output backup.sql   # ノートのバックアップ（任意）
+npx wrangler d1 export mdvault --remote --output backup.sql   # ノートのバックアップ（任意。画面の「⇅」から zip でも書き出せます）
 npx wrangler delete                                          # アプリ（Worker）を削除
 npx wrangler d1 delete mdvault                               # データベースを削除
 npx wrangler r2 bucket delete mdvault-files                  # 画像の保存先を削除

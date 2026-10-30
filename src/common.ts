@@ -16,10 +16,16 @@ const SETTING_KEYS = [
   "REVISION_INTERVAL_MINUTES",
   "MAX_REVISIONS_PER_NOTE",
   "MAX_ATTACHMENT_MB",
+  "MAX_TAGS_PER_NOTE",
+  "MAX_NOTES_PER_BULK_OPERATION",
+  "BACKUP_RETENTION_DAYS",
+  "IMAGE_MAX_DIMENSION",
+  "IMAGE_QUALITY_PERCENT",
+  "ENCRYPTION_PBKDF2_ITERATIONS",
 ] as const;
 export type Settings = Record<(typeof SETTING_KEYS)[number], number>;
 // 文字列の設定値
-const TEXT_SETTING_KEYS = ["ATTACHMENT_FOLDER"] as const;
+const TEXT_SETTING_KEYS = ["ATTACHMENT_FOLDER", "DAILY_NOTE_FOLDER", "TEMPLATE_FOLDER", "DAILY_NOTE_TEMPLATE"] as const;
 type TextSettingKey = (typeof TEXT_SETTING_KEYS)[number];
 
 export interface Env extends Partial<Record<keyof Settings | TextSettingKey, unknown>> {
