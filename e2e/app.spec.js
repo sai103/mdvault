@@ -10,6 +10,13 @@ let page;
 let cdp, authenticatorId;
 const problems = []; // ページのエラーと CSP 違反
 let currentTest = "";
+// XSS のテストでは、わざと書いた onerror などを DOMPurify が無害化する前の解析（表示されない別の文書）で
+// 新しい Chromium が CSP 違反（script-src-attr）として報告する。CSP が止めたことを示すものなので、このテストに限って区別して記録する
+const XSS_TEST = "悪意のある Markdown でもスクリプトは実行されない（XSS）";
+const blockedInXssTest = [];
+// 表示中の要素で起きた違反（target が要素）は区別せず、問題として扱う
+const isBlockedHandler = (text) => /^Executing inline event handler/.test(text) || /^CSP: script-src-attr .* target=#document$/.test(text);
+const report = (text) => (currentTest === XSS_TEST && isBlockedHandler(text) ? blockedInXssTest : problems).push(`[${currentTest}] ${text}`);
 const answers = [];  // prompt / confirm に順番に答える値（true = OK、false = キャンセル、文字列 = 入力）
 
 const editorText = () => page.evaluate(() => document.querySelector("#editor").mdvEditor.getValue());
@@ -30,10 +37,10 @@ const apiGet = (path) => page.evaluate((p) => fetch(p).then((r) => r.json()), pa
 test.beforeAll(async ({ browser }) => {
   const context = await browser.newContext();
   page = await context.newPage();
-  page.on("pageerror", (e) => problems.push(`[${currentTest}] pageerror: ${e.message}`));
-  page.on("console", (m) => { if (m.type() === "error" && !/Failed to load resource/.test(m.text())) problems.push(`[${currentTest}] ${m.text()}`); });
+  page.on("pageerror", (e) => report(`pageerror: ${e.message}`));
+  page.on("console", (m) => { if (m.type() === "error" && !/Failed to load resource/.test(m.text())) report(m.text()); });
   // CSP 違反の詳細（どの要素・どのスクリプトか）も記録する
-  await context.exposeBinding("__mdvCspViolation", (_src, detail) => problems.push(`[${currentTest}] CSP: ${detail}`));
+  await context.exposeBinding("__mdvCspViolation", (_src, detail) => report(`CSP: ${detail}`));
   await context.addInitScript(() => {
     document.addEventListener("securitypolicyviolation", (e) => {
       const t = e.target instanceof Element ? e.target.outerHTML.slice(0, 200) : String(e.target?.nodeName);
@@ -93,7 +100,7 @@ test("ノートを作り、[[ でリンクを補完でき、プレビューに�
   await expect(page.locator("#editor .cm-line").first()).toHaveText("見出しへのリンク: Target");
 });
 
-test("悪意のある Markdown でもスクリプトは実行されない（XSS）", async () => {
+test(XSS_TEST, async () => {
   await openNote("XSS");
   await setEditor([
     "<img src=x onerror=\"window.__xss=1\">",
