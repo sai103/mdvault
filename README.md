@@ -118,7 +118,8 @@ Claude Code では `/mdvault-security-review` でこのアプリ向けのセキ�
 
 ## デプロイ
 
-Cloudflare へのデプロイ手順は [docs/cloudflare.md](docs/cloudflare.md#デプロイ) を参照してください。
+Cloudflare へのデプロイ手順は **[docs/deploy.md](docs/deploy.md)** にあります。Cloudflare を初めて使う人向けに、アカウントの作成から最初のログインまでを順に説明しています。
+費用・運用上の注意は [docs/cloudflare.md](docs/cloudflare.md) を参照してください。
 
 ## アーキテクチャ
 
@@ -231,6 +232,7 @@ migrations/             D1 のスキーマ（番号順に適用）
 tests/                  認可・セキュリティのテスト（vitest + @cloudflare/vitest-pool-workers）
 scripts/                画面用ライブラリのコピー・ローカルデータの削除（npm run vendor / db:reset:local から呼ぶ）
 docs/local-development.md  ローカル開発環境の構築手順
+docs/deploy.md          Cloudflare へのデプロイ手順（初めての人向け）
 docs/cloudflare.md      Cloudflare 側の構成・費用・デプロイ・運用
 docs/security.md        セキュリティの前提・脅威モデル・権限表・対策・検査方法・残存リスク
 docs/security-review/   セキュリティレビューの記録

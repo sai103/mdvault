@@ -37,25 +37,24 @@ Worker のサイズは圧縮後約 130KB です（無料プランの上限は 3M
 
 ## デプロイ
 
-手元に Node.js などの準備ができていない場合は、先に [docs/local-development.md](local-development.md) の 1〜3 を行ってください。
+初めてデプロイする場合は、**[docs/deploy.md](deploy.md)** の手順に沿って進めてください（アカウント作成から最初のログイン、更新・削除の方法、うまくいかないときの対処まで）。
+
+経験者向けのコマンドの要約:
 
 ```bash
 npm ci
 npx wrangler login
-npx wrangler d1 create mdvault
-# 出力された database_id を wrangler.jsonc の d1_databases[0].database_id に書く
-npx wrangler r2 bucket create mdvault-files   # 添付画像の保存先（名前を変えたら wrangler.jsonc の r2_buckets も合わせる）
-
-npm run db:migrate                         # 本番 D1 にテーブル作成
-openssl rand -base64 32                    # 長いランダム文字列を作る
-npx wrangler secret put BOOTSTRAP_SECRET   # ↑ を貼り付け（16文字以上必須）
-npm run deploy
+npx wrangler d1 create mdvault --binding DB                 # database_id を wrangler.jsonc に自動で書き込む
+npx wrangler r2 bucket create mdvault-files --binding FILES # 事前にダッシュボードで R2 を有効にしておく
+npm run db:migrate
+npm run deploy                                              # 初回は workers.dev のサブドメインを登録
+node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"   # 合言葉を作って保存しておく
+npx wrangler secret put BOOTSTRAP_SECRET                    # ↑ を貼り付け（16 文字以上）
 ```
 
-`https://mdvault.<あなたのサブドメイン>.workers.dev` が発行されるので、そこにアクセスして最初のデバイスを登録します。
-
+- `--binding` を付けないと、`wrangler.jsonc` に別の名前の設定が追加されてしまうので注意
 - `database_id` は公開されても、それだけではデータを読み書きできません（Cloudflare アカウントの認証が必要）
-- 2 回目以降の更新は `npm run deploy` だけで反映されます。`migrations/` に新しいファイルが増えたときは、先に `npm run db:migrate` を実行してください
+- 2 回目以降は `npm run db:migrate` → `npm run deploy` です（[更新するとき](deploy.md#更新するとき)）
 
 ### 設定値とシークレット
 

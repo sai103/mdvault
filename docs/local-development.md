@@ -3,7 +3,7 @@
 自分の PC だけで mdvault を動かす手順です。**Cloudflare のアカウントは不要**です。
 Worker の実行環境（workerd）と D1・R2 は、Wrangler がローカルで再現します。データは PC の中（`.wrangler/state/`）にだけ保存されます。
 
-Cloudflare へのデプロイは [docs/cloudflare.md](cloudflare.md) を参照してください。
+Cloudflare へのデプロイは [docs/deploy.md](deploy.md) を参照してください。
 
 ## 1. 必要なもの
 
@@ -148,7 +148,7 @@ npm run db:reset:local
 
 他の端末から試したい場合は、次のどちらかにします。
 
-- **Cloudflare にデプロイする**（[docs/cloudflare.md](cloudflare.md)）。無料枠で動きます。こちらがおすすめです
+- **Cloudflare にデプロイする**（[docs/deploy.md](deploy.md)）。無料枠で動きます。こちらがおすすめです
 - **一時的に HTTPS のトンネルを張る**（この手順は動作を確認していません）: Cloudflare の `cloudflared` をインストールし、`npm run dev` を起動したまま `cloudflared tunnel --url http://localhost:8787` を実行すると、`https://〜.trycloudflare.com` の URL が発行されます。パスキーはその URL に結びつくので、トンネルを張り直して URL が変わると、もう一度登録が必要です
   - **トンネルを張っている間は、ローカルの開発サーバーがインターネットに公開されます。** デバイス承認とパスキーで守られてはいますが、使い終わったらすぐに止めてください
 
