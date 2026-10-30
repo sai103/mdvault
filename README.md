@@ -8,6 +8,7 @@ Cloudflare 上で動く、個人用の Obsidian 風 Markdown ノートアプリ�
 
 | 手順書 | 内容 |
 | --- | --- |
+| [docs/manual.md](docs/manual.md) | 使いかたマニュアル（ログイン・ノートの書きかた・各機能） |
 | [docs/local-development.md](docs/local-development.md) | 自分の PC で動かす（Cloudflare のアカウント不要） |
 | [docs/deploy.md](docs/deploy.md) | Cloudflare に公開する（初めての人向け） |
 | [docs/cloudflare.md](docs/cloudflare.md) | Cloudflare 側の構成・費用・運用・復旧 |
