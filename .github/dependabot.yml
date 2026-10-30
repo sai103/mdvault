@@ -6,6 +6,10 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # @cloudflare/vitest-pool-workers が対応するまで vitest のメジャー更新は保留する
+      - dependency-name: vitest
+        update-types: ["version-update:semver-major"]
     groups:
       # CodeMirror など、まとめて更新したほうがよいもの
       codemirror:

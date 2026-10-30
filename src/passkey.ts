@@ -4,7 +4,7 @@ import {
   verifyAuthenticationResponse,
   verifyRegistrationResponse,
   type AuthenticationResponseJSON,
-  type AuthenticatorTransportFuture,
+  type AuthenticatorTransport,
   type RegistrationResponseJSON,
 } from "@simplewebauthn/server";
 import { isoBase64URL, isoUint8Array } from "@simplewebauthn/server/helpers";
@@ -205,7 +205,7 @@ async function takeChallenge(env: Env, device: Device, kind: "register" | "login
   return row.challenge;
 }
 
-function parseTransports(s: string | null): AuthenticatorTransportFuture[] | undefined {
+function parseTransports(s: string | null): AuthenticatorTransport[] | undefined {
   try {
     return s ? JSON.parse(s) : undefined;
   } catch {

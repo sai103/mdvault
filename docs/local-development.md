@@ -123,6 +123,7 @@ npm run audit      # 本番で使う依存パッケージの既知の脆弱性
 - `npm test` は、開発サーバーとは別の、テスト専用の一時的な D1・R2 を使います。`npm run dev` を起動していなくても動き、ローカルのデータにも影響しません
 - `npm run test:e2e` は、テスト用のサーバー（ポート 8788、データは `.wrangler/e2e/`）を自分で起動して、Chromium で画面を操作します。パスキーは Chromium の仮想認証器で代用します。
   初めて実行する前に、テスト用のブラウザを入れてください: `npx playwright install chromium`（Linux で必要なライブラリが足りない場合は `npx playwright install --with-deps chromium`）
+  - Playwright とバージョンの違う Chromium がすでに入っている環境では、`PW_CHROMIUM_PATH=<chrome の実行ファイルのパス> npm run test:e2e` でそのブラウザを使えます
   - 失敗したときは `test-results/` に画面の様子（スクリーンショット・操作の記録）が残ります。`npx playwright show-trace test-results/…/trace.zip` で見られます
 同じ内容が GitHub に push したときにも自動で実行されます（`.github/workflows/ci.yml`）。
 

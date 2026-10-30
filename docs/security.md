@@ -171,7 +171,7 @@ GitHub に push すると、`.github/workflows/ci.yml` で次が自動で実行�
 | ノートが非常に多いと、無料プランの CPU 時間（10ms）を超えうる | フォルダの名前変更・削除、自動バックアップが失敗する | 数百件程度までは収まる想定。1 回で扱えるノート数に上限（`MAX_NOTES_PER_BULK_OPERATION`）。必要なら有料プラン |
 | 自動バックアップは同じ Cloudflare アカウントの中 | アカウントごと失うと戻せない | ときどき zip に書き出して手元にも保管する |
 | 外部の画像（`https:`）をノートに書くと、表示時に外部へアクセスが発生する | 閲覧したことが外部に伝わる | 自分で書いたノートが前提。気になる場合は `_headers` の `img-src` から `https:` を外す |
-| 開発用ツール（wrangler・miniflare・@cloudflare/vitest-pool-workers が使う undici・sharp・zod）に既知の脆弱性 | 本番には含まれない。ローカル開発・テスト時のみ | 2026-10-30 時点で最新版でも未修正（npm audit が示す「修正」は古い版への戻し）。Dependabot の更新で再確認 |
+| 開発用ツール（miniflare・@cloudflare/vitest-pool-workers が使う undici・sharp・zod）の脆弱性は、`package.json` の `overrides` で同じメジャーの修正版に上げて解消済み（`npm audit` 0 件） | `overrides` を消す・上流が古い版を要求すると再発しうる | Dependabot の更新のたびに `npm audit` を確認し、上流が修正版を使うようになったら `overrides` を外す |
 | 使用中かどうかの画像の判定はファイル名の部分一致 | 未使用の画像を使用中と表示することがある | 削除時に確認ダイアログを出している |
 
 ## 9. 変更するときのチェックリスト

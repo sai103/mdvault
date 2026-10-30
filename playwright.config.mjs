@@ -13,6 +13,8 @@ export default defineConfig({
     baseURL: "http://localhost:8788",
     ...devices["Desktop Chrome"],
     trace: "retain-on-failure",
+    // 別の場所にある Chromium を使う場合（例: Playwright のバージョンと合うブラウザを入れられない環境）
+    ...(process.env.PW_CHROMIUM_PATH ? { launchOptions: { executablePath: process.env.PW_CHROMIUM_PATH } } : {}),
   },
   webServer: {
     command: "node scripts/e2e-server.mjs",
