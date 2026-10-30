@@ -9,6 +9,7 @@ test.describe.configure({ mode: "serial" });
 let page;
 let cdp, authenticatorId;
 const problems = []; // ページのエラーと CSP 違反
+let currentTest = "";
 const answers = [];  // prompt / confirm に順番に答える値（true = OK、false = キャンセル、文字列 = 入力）
 
 const editorText = () => page.evaluate(() => document.querySelector("#editor").mdvEditor.getValue());
@@ -29,8 +30,16 @@ const apiGet = (path) => page.evaluate((p) => fetch(p).then((r) => r.json()), pa
 test.beforeAll(async ({ browser }) => {
   const context = await browser.newContext();
   page = await context.newPage();
-  page.on("pageerror", (e) => problems.push("pageerror: " + e.message));
-  page.on("console", (m) => { if (m.type() === "error" && !/Failed to load resource/.test(m.text())) problems.push(m.text()); });
+  page.on("pageerror", (e) => problems.push(`[${currentTest}] pageerror: ${e.message}`));
+  page.on("console", (m) => { if (m.type() === "error" && !/Failed to load resource/.test(m.text())) problems.push(`[${currentTest}] ${m.text()}`); });
+  // CSP 違反の詳細（どの要素・どのスクリプトか）も記録する
+  await context.exposeBinding("__mdvCspViolation", (_src, detail) => problems.push(`[${currentTest}] CSP: ${detail}`));
+  await context.addInitScript(() => {
+    document.addEventListener("securitypolicyviolation", (e) => {
+      const t = e.target instanceof Element ? e.target.outerHTML.slice(0, 200) : String(e.target?.nodeName);
+      window.__mdvCspViolation(`${e.effectiveDirective} sample=${e.sample} source=${e.sourceFile}:${e.lineNumber} target=${t}`);
+    }, true);
+  });
   page.on("dialog", (d) => {
     const a = answers.shift();
     if (a === false) d.dismiss();
@@ -42,6 +51,8 @@ test.beforeAll(async ({ browser }) => {
     options: { protocol: "ctap2", transport: "internal", hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true },
   }));
 });
+
+test.beforeEach(({}, info) => { currentTest = info.title; });
 
 test.afterAll(() => {
   // テスト全体を通して、スクリプトのエラーや CSP 違反がないこと
