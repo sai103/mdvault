@@ -121,7 +121,7 @@ npm run audit      # 本番で使う依存パッケージの既知の脆弱性
 ```
 
 - `npm test` は、開発サーバーとは別の、テスト専用の一時的な D1・R2 を使います。`npm run dev` を起動していなくても動き、ローカルのデータにも影響しません
-- `npm run test:e2e` は、テスト用のサーバー（ポート 8788、データは `.wrangler/e2e/`）を自分で起動して、Chromium で画面を操作します。パスキーは Chromium の仮想認証器で代用します。
+- `npm run test:e2e` は、テスト用のサーバー（ポート 8788・8789、データは `.wrangler/e2e-<ポート>/`）を自分で起動して、Chromium で画面を操作します。`e2e/scenarios.spec.js` は使いかたマニュアルに沿ったシナリオです（一覧は [docs/test-scenarios.md](test-scenarios.md)）。パスキーは Chromium の仮想認証器で代用します。
   初めて実行する前に、テスト用のブラウザを入れてください: `npx playwright install chromium`（Linux で必要なライブラリが足りない場合は `npx playwright install --with-deps chromium`）
   - Playwright とバージョンの違う Chromium がすでに入っている環境では、`PW_CHROMIUM_PATH=<chrome の実行ファイルのパス> npm run test:e2e` でそのブラウザを使えます
   - 失敗したときは `test-results/` に画面の様子（スクリーンショット・操作の記録）が残ります。`npx playwright show-trace test-results/…/trace.zip` で見られます
@@ -178,6 +178,6 @@ npm run db:reset:local
 | 画面が真っ白・`/build/app.js` が見つからない | `public/build/` がない。`npm run build` を実行する（`npm run dev` なら自動） |
 | 画面を変更したのに反映されない | Service Worker のキャッシュ。スーパーリロード（`Ctrl + Shift + R`）する。「8. 開発の進め方」も参照 |
 | `npm run test:e2e` で `Executable doesn't exist` | テスト用のブラウザが入っていない。`npx playwright install chromium` |
-| `npm run test:e2e` で `Address already in use`（8788） | 前回のテスト用サーバーが残っている。止めるか、PC を再起動する |
+| `npm run test:e2e` で `Address already in use`（8788・8789） | 前回のテスト用サーバーが残っている。止めるか、PC を再起動する |
 | `wrangler d1 execute --local` が終わらない | `npm run dev` を止めてから実行する |
 | ターミナルに `Unable to fetch the Request.cf object!` と出る | インターネットに接続できないときの警告。ローカルでの動作には影響しない |
