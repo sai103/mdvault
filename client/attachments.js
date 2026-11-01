@@ -61,6 +61,12 @@ function insertImageLinks(paths) {
 
 // 一覧（どのノートからも参照されていない画像を探して削除できる）
 export async function openAttachments() {
+  await renderAttachments();
+  if (!$("#attachments").open) $("#attachments").showModal();
+}
+
+// 削除の後は一覧だけを描き直す（その間に閉じられたダイアログを開き直さない）
+async function renderAttachments() {
   const { attachments } = await api("GET", "/api/attachments?refs=1");
   $("#attachment-list").replaceChildren(...(attachments.length ? attachments.map((a) => el("div", { className: "attachment-card" },
     el("img", { src: attachmentUrl(a.path), alt: basename(a.path), loading: "lazy" }),
@@ -77,14 +83,13 @@ export async function openAttachments() {
             await api("DELETE", "/api/attachments?path=" + encodeURIComponent(a.path));
             await refreshAttachments();
             renderPreview();
-            await openAttachments();
+            await renderAttachments();
           } catch (e) {
             alert(e.message);
           }
         },
       }))))
     : [el("p", { className: "muted", textContent: "画像はまだありません。ノートに貼り付けるか、ドラッグ&ドロップで追加できます。" })]));
-  if (!$("#attachments").open) $("#attachments").showModal();
 }
 
 export function setupAttachments() {

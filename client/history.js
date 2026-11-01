@@ -80,6 +80,12 @@ export async function openTrash() {
 let loaded = null; // 開いているバックアップの中身
 
 export async function openBackups() {
+  await renderBackups();
+  if (!$("#backups").open) $("#backups").showModal();
+}
+
+// バックアップを作った後は一覧だけを描き直す（その間に閉じられたダイアログを開き直さない）
+async function renderBackups() {
   const { backups, retention_days } = await api("GET", "/api/backups");
   $("#backup-retention").textContent = `毎日 1 回、自動で保存されます（${retention_days} 日分を保持）。`;
   $("#backup-list").replaceChildren(...(backups.length ? backups.map((b) => el("li", {
@@ -89,7 +95,6 @@ export async function openBackups() {
   $("#backup-notes").replaceChildren();
   $("#backup-filter").hidden = true;
   $("#backup-preview").replaceChildren(el("p", { className: "muted", textContent: "左の一覧から日付を選ぶと、その日のノートを 1 件ずつ見て復元できます" }));
-  if (!$("#backups").open) $("#backups").showModal();
 }
 
 async function loadBackup(b, li) {
@@ -149,7 +154,7 @@ export function setupHistory() {
     try {
       const r = await api("POST", "/api/backups");
       alert(`バックアップしました（ノート ${r.notes} 件、${fmtSize(r.size)}）`);
-      await openBackups();
+      await renderBackups();
     } catch (e) {
       alert(e.message);
     } finally {

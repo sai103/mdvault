@@ -5,8 +5,8 @@ import { expect, test } from "@playwright/test";
 
 test.describe.configure({ mode: "serial" });
 
-const SECRET = "e2e-bootstrap-secret-0123456789";
-const AUTHENTICATOR = { protocol: "ctap2", transport: "internal", hasResidentKey: true, hasUserVerification: true, isUserVerified: true };
+const BOOTSTRAP_WORD = "e2e-bootstrap-secret-0123456789"; // scripts/e2e-server.mjs で設定した合言葉
+const VIRTUAL_DEVICE = { protocol: "ctap2", transport: "internal", hasResidentKey: true, hasUserVerification: true, isUserVerified: true };
 
 /** @type {import("@playwright/test").Page} */
 let page;
@@ -27,10 +27,18 @@ async function openBrowser(browser, label) {
     else d.accept(typeof a === "string" ? a : undefined);
   });
   const session = await context.newCDPSession(p);
-  await session.send("WebAuthn.enable");
-  const { authenticatorId: id } = await session.send("WebAuthn.addVirtualAuthenticator", { options: { ...AUTHENTICATOR, automaticPresenceSimulation: true } });
+  await send(session, "WebAuthn.enable");
+  const { authenticatorId: id } = await send(session, "WebAuthn.addVirtualAuthenticator", { options: { ...VIRTUAL_DEVICE, automaticPresenceSimulation: true } });
   return { page: p, cdp: session, authenticatorId: id };
 }
+
+// DevTools プロトコルの呼び出し。応答がないときに、どの呼び出しで止まったかがわかるように時間を区切る
+async function send(session, method, params = {}) {
+  let timer;
+  const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${method} が 15 秒以内に応答しませんでした`)), 15_000); });
+  try { return await Promise.race([session.send(method, params), timeout]); } finally { clearTimeout(timer); }
+}
+const credentialsOf = async (session, id) => (await send(session, "WebAuthn.getCredentials", { authenticatorId: id })).credentials;
 
 // 2 台目のデバイスで「このデバイスを登録」まで進め、6 桁のコードを返す
 async function registerDevice(p, name) {
@@ -61,7 +69,8 @@ const apiSend = (method, path, body) => page.evaluate(([m, p, b]) => fetch(p, {
 }).then((r) => r.json()), [method, path, body]);
 const notePaths = async () => (await apiGet("/api/notes")).notes.map((n) => n.path);
 const openDevicesDialog = async () => { await page.click("#open-devices"); await expect(page.locator("#devices")).toBeVisible(); };
-const closeDialog = () => page.keyboard.press("Escape");
+// ダイアログを閉じ、開いたままのものがないことを確かめる（閉じたつもりで次の操作がふさがれないように）
+const closeDialog = async () => { await page.keyboard.press("Escape"); await expect(page.locator("dialog[open]")).toHaveCount(0); };
 
 test.beforeAll(async ({ browser }) => {
   ({ page, cdp, authenticatorId } = await openBrowser(browser, "main"));
@@ -83,12 +92,13 @@ test("【2章】最初の 1 台: 合言葉を間違えると承認されず、�
   await page.click("#register-btn");
   await expect(page.locator("#pair-code")).toHaveText(/^\d{6}$/);
   await page.click("#bootstrap-section summary");
-  await page.fill("#secret", "wrong-secret-0123456789");
+  const bootstrapInput = page.locator("#secret");
+  await bootstrapInput.fill("wrong-0123456789");
   await page.click("#bootstrap-btn");
   await expect(page.locator("#gate-error")).not.toBeEmpty();
   await expect(page.locator("#gate-pending")).toBeVisible();
 
-  await page.fill("#secret", SECRET);
+  await bootstrapInput.fill(BOOTSTRAP_WORD);
   await page.click("#bootstrap-btn");
   await expect(page.locator("#gate-passkey-setup")).toBeVisible();
   await page.fill("#passkey-setup-name", "Windows Hello");
@@ -115,14 +125,14 @@ test("【3章】2 台目: 6 桁のコードで承認し、同期されたパス�
   await expect(phone.page.locator("#gate-passkey-login")).toBeVisible({ timeout: 15_000 });
   // iCloud キーチェーンなどで同期されたパスキーの代わりに、1 台目の認証器のパスキーを写す
   // （署名の回数がずれないよう、1 台目が承認で署名した後に写す）
-  const { credentials } = await cdp.send("WebAuthn.getCredentials", { authenticatorId });
-  for (const credential of credentials) await phone.cdp.send("WebAuthn.addCredential", { authenticatorId: phone.authenticatorId, credential });
+  const phoneId = phone.authenticatorId;
+  for (const credential of await credentialsOf(cdp, authenticatorId)) await send(phone.cdp, "WebAuthn.addCredential", { authenticatorId: phoneId, credential });
   await phone.page.click("#passkey-login-btn");
   await expect(phone.page.locator("#app")).toBeVisible();
   // 同期されたパスキーと同じく、2 台目で増えた署名の回数を 1 台目にも反映する（古い回数の署名はサーバーが拒否する）
-  for (const credential of (await phone.cdp.send("WebAuthn.getCredentials", { authenticatorId: phone.authenticatorId })).credentials) {
-    await cdp.send("WebAuthn.removeCredential", { authenticatorId, credentialId: credential.credentialId });
-    await cdp.send("WebAuthn.addCredential", { authenticatorId, credential });
+  for (const credential of await credentialsOf(phone.cdp, phoneId)) {
+    await send(cdp, "WebAuthn.removeCredential", { authenticatorId, credentialId: credential.credentialId });
+    await send(cdp, "WebAuthn.addCredential", { authenticatorId, credential });
   }
 
   // 1 台目から削除すると、2 台目は登録の画面に戻る
@@ -392,11 +402,11 @@ test("【19章】パスキーを追加でき、最後の 1 つは削除できな
 
   // 2 つ目のパスキーは別の認証器（例: USB セキュリティキー）に作る。
   // 本人確認（既存のパスキーでの署名）は 1 つ目の認証器、作成は 2 つ目の認証器だけが応答するように切り替える
-  const { authenticatorId: key } = await cdp.send("WebAuthn.addVirtualAuthenticator", { options: { ...AUTHENTICATOR, transport: "usb", automaticPresenceSimulation: false } });
+  const { authenticatorId: key } = await send(cdp, "WebAuthn.addVirtualAuthenticator", { options: { ...VIRTUAL_DEVICE, transport: "usb", automaticPresenceSimulation: false } });
   const switched = new Promise((resolve) => {
     cdp.once("WebAuthn.credentialAsserted", async () => {
-      await cdp.send("WebAuthn.setAutomaticPresenceSimulation", { authenticatorId, enabled: false });
-      await cdp.send("WebAuthn.setAutomaticPresenceSimulation", { authenticatorId: key, enabled: true });
+      await send(cdp, "WebAuthn.setAutomaticPresenceSimulation", { authenticatorId, enabled: false });
+      await send(cdp, "WebAuthn.setAutomaticPresenceSimulation", { authenticatorId: key, enabled: true });
       resolve();
     });
   });
@@ -406,17 +416,17 @@ test("【19章】パスキーを追加でき、最後の 1 つは削除できな
   await switched;
   await expect(page.locator("#passkey-list tr")).toHaveCount(2);
   await expect(page.locator("#passkey-list")).toContainText("セキュリティキー");
-  expect((await cdp.send("WebAuthn.getCredentials", { authenticatorId: key })).credentials).toHaveLength(1);
+  expect(await credentialsOf(cdp, key)).toHaveLength(1);
   // 1 つ目の認証器に戻す
-  await cdp.send("WebAuthn.setAutomaticPresenceSimulation", { authenticatorId: key, enabled: false });
-  await cdp.send("WebAuthn.setAutomaticPresenceSimulation", { authenticatorId, enabled: true });
+  await send(cdp, "WebAuthn.setAutomaticPresenceSimulation", { authenticatorId: key, enabled: false });
+  await send(cdp, "WebAuthn.setAutomaticPresenceSimulation", { authenticatorId, enabled: true });
 
   // ログイン中ではない方（追加したもの）を削除すると、また 1 つに戻る
   answers.push(true);
   await page.locator("#passkey-list tr", { hasText: "セキュリティキー" }).locator('button:has-text("削除")').click();
   await expect(page.locator("#passkey-list tr")).toHaveCount(1);
   await expect(page.locator('#passkey-list button:has-text("削除")')).toBeDisabled();
-  await cdp.send("WebAuthn.removeVirtualAuthenticator", { authenticatorId: key });
+  await send(cdp, "WebAuthn.removeVirtualAuthenticator", { authenticatorId: key });
   await closeDialog();
 });
 

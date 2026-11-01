@@ -96,6 +96,12 @@ export function setupGate(handler) {
 // ---------------- デバイスとパスキー ----------------
 
 export async function openDevices() {
+  await renderDevices();
+  if (!$("#devices").open) $("#devices").showModal();
+}
+
+// 承認・削除の後は一覧だけを描き直す（その間に閉じられたダイアログを開き直さない）
+async function renderDevices() {
   const { devices, current } = await api("GET", "/api/devices");
   $("#device-list").replaceChildren(...devices.map((d) => {
     const actions = el("td");
@@ -103,7 +109,7 @@ export async function openDevices() {
       const input = el("input", { placeholder: "6桁コード", inputMode: "numeric", maxLength: 6, className: "code" });
       actions.append(input, el("button", {
         textContent: "承認", className: "primary",
-        onclick: () => api("POST", "/api/devices/approve", { id: d.id, pair_code: input.value.trim() }).then(openDevices, (e) => alert(e.message)),
+        onclick: () => api("POST", "/api/devices/approve", { id: d.id, pair_code: input.value.trim() }).then(renderDevices, (e) => alert(e.message)),
       }));
     }
     actions.append(el("button", {
@@ -112,7 +118,7 @@ export async function openDevices() {
         const msg = d.id === current ? "このデバイスを削除すると、再承認するまでアクセスできなくなります。よろしいですか？" : `「${d.name}」を削除しますか？`;
         if (!confirm(msg)) return;
         await api("DELETE", "/api/devices?id=" + encodeURIComponent(d.id)).catch((e) => alert(e.message));
-        d.id === current ? location.reload() : openDevices();
+        d.id === current ? location.reload() : renderDevices();
       },
     }));
     return el("tr", {},
@@ -122,7 +128,6 @@ export async function openDevices() {
       actions);
   }));
   await renderPasskeys();
-  if (!$("#devices").open) $("#devices").showModal();
 }
 
 async function renderPasskeys() {
