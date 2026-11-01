@@ -65,5 +65,12 @@ jobs:
           # 履歴全体を調べるため
           fetch-depth: 0
           persist-credentials: false
-      # 見つかった値はログに出さない（--redact）
-      - run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.30.1 git /repo --redact --no-banner --verbose
+      # 見つかった値はログに出さない（--redact）。見つかった場所（ファイル・行・ルール・コミット）だけを注釈に出す
+      - run: |
+          status=0
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.30.1 git /repo --redact --no-banner --verbose \
+            --report-format json --report-path /repo/gitleaks-report.json || status=$?
+          if [ -s gitleaks-report.json ]; then
+            jq -r '.[] | "::error file=\(.File),line=\(.StartLine)::gitleaks: \(.RuleID)（コミット \(.Commit[0:7])）"' gitleaks-report.json
+          fi
+          exit $status
