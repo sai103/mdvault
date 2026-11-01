@@ -1,7 +1,7 @@
 # テストシナリオ
 
 使いかたマニュアル（[manual.md](manual.md)）の章ごとに、どの自動テストで確かめているかをまとめた一覧です。
-自動テストは、GitHub に push したとき・プルリクエストを作ったときに CI（`.github/workflows/ci.yml`）で毎回実行されます。
+自動テストは、GitHub に push したとき・プルリクエストを作ったときに CI（`.github/workflows/ci.yml`）で毎回実行されます（CI のしくみは [ci.md](ci.md)）。
 
 ## テストの種類
 
