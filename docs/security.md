@@ -139,7 +139,7 @@ GitHub に push すると、`.github/workflows/ci.yml` で次が自動で実行�
 
 - 型チェック・Worker のテスト・`npm run audit`・ビルド
 - 画面の E2E テスト（失敗したら画面の記録を 7 日間保存）
-- gitleaks（`zricethezav/gitleaks:v8.30.1`）で Git の履歴全体の秘密情報を検査。見つかった値はログに出さない（`--redact`）
+- gitleaks（`zricethezav/gitleaks:v8.30.1`）で Git の履歴全体の秘密情報を検査。見つかった値はログに出さない（`--redact`）。見つかった場所（ファイル・行・ルール・コミット）は注釈に出す。誤検知は `.gitleaksignore` に 1 件ずつ理由を書いて除外する（ファイルやルールごとの除外はしない）
 
 依存パッケージの更新は Dependabot（`.github/dependabot.yml`）が毎週プルリクエストを作り、CI で確認されます。
 
