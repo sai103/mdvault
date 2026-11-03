@@ -17,6 +17,7 @@ Cloudflare 側の設定は [cloudflare.md](cloudflare.md)・[deploy.md](deploy.m
 | [Dependabot alerts・security updates](#5-dependabot) | リポジトリ → Settings → Advanced Security | ⚠️ **要確認**（2026-11-03 時点で無効だった） | 脆弱性が公表されたらすぐに通知し、修正のプルリクエストを作る |
 | [メールアドレスを公開しない](#6-メールアドレスを公開しないアカウントの設定) | アカウント → Settings → Emails | ⚠️ **要確認**（2026-11-04 のマージで個人のアドレスが使われた） | コミットに個人のメールアドレスを入れない |
 | [PC の Git のメールアドレス](#6-メールアドレスを公開しないアカウントの設定) | PC ごと（`git config`） | PC ごとに設定 | 同上 |
+| [さらに強化するための設定](#9-さらに強化するための設定推奨) | アカウント・リポジトリの各所 | 未設定（推奨） | 2FA・CodeQL・Actions の権限・脆弱性の報告の窓口など。無料・有料に分けて記載 |
 
 > 「Settings」には 2 種類あります。**リポジトリの Settings** はリポジトリの画面の上のタブ（Code・Issues・Pull requests… の右端の ⚙ Settings）、**アカウントの Settings** は右上のアイコン → Settings です。
 
@@ -185,6 +186,7 @@ GitHub の画面ではなく、リポジトリのファイルで管理してい�
 | `.github/dependabot.yml` | 依存パッケージの更新の提案（develop 向け） | [ci.md](ci.md) の「6. Dependabot」 |
 | `.gitleaksignore` | gitleaks の誤検知の除外（1 件ずつ理由を書く） | [ci.md](ci.md) の「4. 秘密情報の混入」 |
 | `CLAUDE.md` | Claude Code で作業するときのルール（develop で作業する、など） | |
+| `SECURITY.md` | 脆弱性の報告のしかた（Private vulnerability reporting で非公開に報告してもらう） | [9-1](#脆弱性への対応) |
 
 ## 8. 新しいリポジトリで同じ運用にするとき
 
@@ -195,3 +197,102 @@ GitHub の画面ではなく、リポジトリのファイルで管理してい�
 5. [4 章](#4-secret-protectionpush-protection): Secret Protection・Push protection
 6. [5 章](#5-dependabot): Dependabot alerts・security updates
 7. [6 章](#6-メールアドレスを公開しないアカウントの設定)は、アカウントの設定なので 1 回だけでよい（新しい PC では `git config` だけ行う）
+
+## 9. さらに強化するための設定（推奨）
+
+ここまでの設定に加えて、やっておくとよい設定です。**まだ設定していないもの**なので、上から順に確認してください。
+「無料」は、このリポジトリのような**公開リポジトリ・個人アカウント**で無料という意味です。
+
+### 9-1. 無料でできるもの
+
+#### アカウントを守る（最優先）
+
+GitHub のアカウントを乗っ取られると、ブランチ保護を外す・コードを書き換える・秘密情報を読む、などすべてができてしまいます。リポジトリの設定よりも先に確認してください。
+
+| 設定 | 場所 | 内容 |
+| --- | --- | --- |
+| **2 要素認証（2FA）** | アカウント → Settings → **Password and authentication** | パスワードに加えて、もう 1 つの確認を必須にする。**パスキー**か**セキュリティキー**がおすすめ（フィッシングに強い）。認証アプリ（TOTP）も可。SMS は避ける |
+| パスキーでのサインイン | 同上 → **Passkeys** | パスワードなしでサインインできる。2FA も兼ねる |
+| **リカバリーコードの保管** | 同上 → **Recovery options** | 2FA の端末をなくしたときの唯一の手段。パスワードマネージャーなど安全な場所に保存する |
+| 使っていないセッションの終了 | アカウント → Settings → **Sessions** | 覚えのないブラウザ・場所のセッションを終了する |
+| **アクセストークンの整理** | アカウント → Settings → **Developer settings → Personal access tokens** | 使っていないトークンを削除する。作るときは **Fine-grained**（リポジトリと権限を絞れる）を選び、**有効期限**を付ける |
+| **連携アプリの整理** | アカウント → Settings → **Applications**（Authorized OAuth Apps・Authorized GitHub Apps・Installed GitHub Apps） | 使っていない連携を外す。Claude などの GitHub App は、**Repository access** を必要なリポジトリだけに絞る |
+| SSH キーの整理 | アカウント → Settings → **SSH and GPG keys** | 使っていない PC のキーを削除する |
+| セキュリティログの確認 | アカウント → Settings → **Security log** | サインイン・トークンの作成・設定の変更などの記録。ときどき覚えのない操作がないか見る |
+
+#### 個人情報を守る
+
+| 設定 | 場所 | 内容 |
+| --- | --- | --- |
+| メールアドレスを公開しない | [6 章](#6-メールアドレスを公開しないアカウントの設定) | 設定済みか確認する |
+| プロフィールの公開情報 | アカウント → Settings → **Public profile** | 名前・場所・所属・SNS など、公開して困るものを外す。「Public email」は「Don't show my email address」にする |
+| 活動の公開範囲 | 同上 → **Contributions & activity** | 「Make profile private and hide activity」で、プロフィールの活動の記録を非公開にできる（リポジトリ自体は公開のまま） |
+| コミットの日時 | — | コミットの日時（タイムゾーンを含む）は公開されます。気になる場合は、作業する時間帯から生活リズムが推測されることを意識する |
+
+#### 脆弱性への対応
+
+| 設定 | 場所 | 内容 |
+| --- | --- | --- |
+| Dependabot alerts・security updates | [5 章](#5-dependabot) | 設定済みか確認する |
+| **Private vulnerability reporting** | リポジトリ → Settings → **Advanced Security**（または Code security）→ Private vulnerability reporting | 他の人がこのアプリの脆弱性を見つけたとき、公開の Issue ではなく、**非公開で報告できる**窓口を作る。報告の受け付けかたは `SECURITY.md` に書いてある |
+| **CodeQL（Code scanning）の Default setup** | 同上 → **Code scanning → CodeQL analysis → Set up → Default** | GitHub がコードを解析し、XSS・インジェクションなどの危険な書き方を見つける（JavaScript・TypeScript・GitHub Actions の設定を対象）。結果はリポジトリの **Security** タブに出る。プルリクエストごとと週 1 回実行される。ファイルの追加は不要 |
+| Copilot Autofix | CodeQL を有効にすると使える | CodeQL の指摘に、修正の案を自動で付ける |
+| Dependency review（任意） | `.github/workflows/` に `actions/dependency-review-action` を使うジョブを追加する（ファイルの変更が必要） | プルリクエストで、脆弱性のあるパッケージや確認していないライセンスのパッケージが**追加される**ときに止める。今は `npm run audit` とビルドのライセンスの確認で同じ役割をしているので、必須ではない |
+
+> CodeQL は GitHub Actions の時間を使いますが、公開リポジトリなので無料です。CI とは別に動くので、ブランチ保護の必須のチェックに加える必要はありません（加えると、CodeQL の結果待ちでマージが遅くなる）。
+
+#### GitHub Actions を守る
+
+**リポジトリ → Settings → Actions → General**
+
+| 項目 | 推奨 | 理由 |
+| --- | --- | --- |
+| Actions permissions | **Allow sai103, and select non-sai103, actions and reusable workflows**（`sai103` の部分はアカウント名） を選び、「**Allow actions created by GitHub**」だけをオンにする | このリポジトリが使う Action は `actions/checkout`・`actions/setup-node`・`actions/upload-artifact`（すべて GitHub 製）だけ。知らない Action が追加されても動かないようにする。gitleaks は Action ではなく Docker で実行しているので影響しない |
+| Fork pull request workflows from outside collaborators | **Require approval for all external contributors** | 他の人がプルリクエストを出したとき、CI を動かす前に自分の承認を必要にする（悪意のあるコードを CI で実行されないように） |
+| **Workflow permissions** | **Read repository contents and packages permissions** | CI に渡すトークンの既定の権限を読み取りだけにする（`ci.yml` でも `contents: read` にしているが、二重に絞る） |
+| Allow GitHub Actions to create and approve pull requests | **オフ** | CI が勝手にプルリクエストを作成・承認できないようにする |
+
+#### リポジトリの設定
+
+| 設定 | 場所 | 推奨 | 理由 |
+| --- | --- | --- | --- |
+| **develop の保護** | リポジトリ → Settings → Rules → Rulesets → New branch ruleset | 対象を `develop`（Add target → Include by pattern → `develop`）にして、**Restrict deletions** と **Block force pushes** だけをオン。プルリクエストや CI は必須にしない | develop を消したり、履歴を書き換えたりできないようにする。push は今までどおりできる |
+| マージの方法 | リポジトリ → Settings → **General → Pull Requests** | 「Allow merge commits」だけをオン。「Allow squash merging」「Allow rebase merging」はオフ | ブランチ保護と同じ方針を、リポジトリ全体にも適用する（Dependabot のプルリクエストなども含む） |
+| ⚠️ Automatically delete head branches | 同上 | **オフのまま** | オンにすると、develop → main のマージのたびに **develop が削除される** |
+| 使わない機能を止める | リポジトリ → Settings → **General → Features** | Wikis・Projects・Discussions など使っていないものをオフ | 誰でも書き込める場所を減らす。Issues は、不具合の報告を受けたいならオンのまま |
+
+#### コミットへの署名（任意・上級）
+
+| 設定 | 場所 | 内容 |
+| --- | --- | --- |
+| コミットへの署名 | アカウント → Settings → **SSH and GPG keys → New SSH key**（Key type: **Signing Key**）と、PC の `git config --global gpg.format ssh`・`user.signingkey`・`commit.gpgsign true` | 自分の PC で作ったコミットに署名し、GitHub に「Verified」と表示させる。なりすましのコミットと区別できる |
+| Vigilant mode | アカウント → Settings → **SSH and GPG keys → Flag unsigned commits as unverified** | 署名のない自分名義のコミットに「Unverified」と表示する |
+
+> ⚠️ ブランチ保護の「**Require signed commits**」は、今の運用では**オンにしないでください**。Claude Code など署名をしない環境で作ったコミットが develop から main に入れなくなり、マージできなくなります。使う場合は、すべての作業環境で署名を設定してからにします。
+
+### 9-2. 有料のもの
+
+個人で使う公開リポジトリには**どれも不要**です。リポジトリを非公開にする場合や、組織で使う場合に検討します。
+料金は 2026 年時点の目安で、変わることがあります。契約の前に [GitHub の料金ページ](https://github.com/pricing) で確認してください。
+
+| プラン・製品 | 目安の料金 | できること | このリポジトリで必要になる場面 |
+| --- | --- | --- | --- |
+| **GitHub Pro**（個人） | 月 4 ドル程度 | 非公開リポジトリでの**ブランチ保護（Rulesets）**・必須のレビュー、Actions の時間の追加（月 3,000 分） | リポジトリを非公開にして、ブランチ保護を続けたいとき |
+| **GitHub Team**（組織） | 1 人あたり月 4 ドル程度 | 組織での非公開リポジトリのブランチ保護、メンバーの権限管理、**組織全体で 2FA を必須**にする設定 | 複数人で開発するとき |
+| **GitHub Secret Protection**（Team・Enterprise に追加） | コミットする人 1 人あたり月 19 ドル程度 | 非公開リポジトリでの秘密情報の検出・push protection、**自分で決めた形式の検出（Custom patterns）**、検出したトークンが今も使えるかの確認（validity checks）、AI による形の決まっていないパスワードの検出 | 非公開にするとき、または `BOOTSTRAP_SECRET` のような独自の秘密情報も GitHub 側で検出したいとき（今は CI の gitleaks で代わりにしている） |
+| **GitHub Code Security**（Team・Enterprise に追加） | コミットする人 1 人あたり月 30 ドル程度 | 非公開リポジトリでの CodeQL・Copilot Autofix、**dependency review**（プルリクエストで脆弱な依存の追加を止める）、組織全体のセキュリティの一覧 | 非公開にして、CodeQL を続けたいとき |
+| **GitHub Enterprise** | 1 人あたり月 21 ドル程度〜 | SAML によるシングルサインオン、IP アドレスでの接続制限、監査ログの外部への送信など | 会社など大きな組織で使うとき |
+
+> 公開リポジトリのままなら、Rulesets・Secret Protection（push protection を含む）・CodeQL・Dependabot・GitHub Actions はすべて**無料**です。非公開にすると、これらの多くが有料になるか使えなくなります（[1 章](#1-リポジトリの公開)）。
+
+### 9-3. 確認のチェックリスト
+
+半年に 1 回など、定期的に確認すると安心です。
+
+- [ ] 2FA が有効で、リカバリーコードを安全に保管している
+- [ ] 覚えのないセッション・トークン・SSH キー・連携アプリがない（[9-1](#アカウントを守る最優先)）
+- [ ] Security log に覚えのない操作がない
+- [ ] main のブランチ保護が効いている（`gh api repos/sai103/mdvault/rules/branches/main` が空でない）
+- [ ] Secret Protection・Push protection・Dependabot alerts がオンになっている
+- [ ] Security タブに未対応の通知（Dependabot・Code scanning・Secret scanning）が残っていない
+- [ ] 最近のコミットの作者が noreply のアドレスになっている（`git log --format='%ae' -20 | sort -u`）
