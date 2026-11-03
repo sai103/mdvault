@@ -383,6 +383,10 @@ test("【18章・20章】Ctrl+E で編集と閲覧を切り替え、Ctrl+Shift+F
   expect(await editorText()).toMatch(/^# \d{4}-\d{2}-\d{2}\s*$/);
 
   await page.click("#open-prefs");
+  // 同梱しているライブラリのライセンスの一覧を開ける（画面とサーバーの両方）
+  const href = await page.locator("#licenses-link").getAttribute("href");
+  const licenses = await page.evaluate((u) => fetch(u).then((r) => r.ok ? r.text() : ""), href);
+  expect(licenses).toMatch(/■ 画面[\s\S]*marked@[\s\S]*■ サーバー[\s\S]*@simplewebauthn\/server@/);
   await page.selectOption('#prefs-form select[name="editorFont"]', "mono");
   await closeDialog();
   const font = await page.evaluate(() => getComputedStyle(document.querySelector("#editor").shadowRoot.querySelector(".cm-content")).fontFamily);
