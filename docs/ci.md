@@ -38,10 +38,59 @@ push（main）／プルリクエスト
 
 | きっかけ | 動くか |
 | --- | --- |
-| `main` ブランチへの push（マージを含む） | 動く |
-| プルリクエストの作成・更新（Dependabot のものを含む） | 動く |
-| `main` 以外のブランチへの push だけ | 動かない（プルリクエストを作ると動く） |
+| `develop` ブランチへの push | 動く |
+| プルリクエストの作成・更新（`develop` → `main`、Dependabot のものを含む） | 動く |
+| `main` へのマージ | 動く（念のため、マージした後の状態をもう一度確認する） |
+| それ以外のブランチへの push だけ | 動かない（プルリクエストを作ると動く） |
 | 手動での実行 | 設定していない |
+
+## ブランチの運用
+
+```
+develop ──●──●──●───────●──●──→   普段の作業・Dependabot の更新はここ（push のたびに CI）
+              \           \
+               プルリクエスト  プルリクエスト（CI がすべて成功したらマージ）
+                 \           \
+main ─────────────●───────────●──→   常に CI を通った状態。デプロイと git clone はここから
+```
+
+| ブランチ | 役割 | 直接 push |
+| --- | --- | --- |
+| `main` | 安定版。CI を通ったものだけが入る。デプロイ（`npm run deploy`）と、[deploy.md](deploy.md)・[local-development.md](local-development.md) の `git clone` はここを使う。GitHub の既定のブランチ | **しない**（ブランチ保護で禁止する） |
+| `develop` | 作業用。変更はすべてここに push する。Dependabot の更新もここに来る | する |
+
+### 普段の流れ
+
+1. `develop` で変更して push する → CI が動く
+2. CI がすべて成功したら、GitHub で `develop` → `main` のプルリクエストを作る（いくつかの変更をまとめてもよい）
+3. プルリクエストの CI がすべて成功したら、**「Create a merge commit」でマージする**
+4. 本番に反映するときは、`main` を取得してからデプロイする（`git checkout main && git pull && npm run deploy`）
+
+> マージは「Squash and merge」ではなく「Create a merge commit」を使います。Squash すると main と develop の履歴が別物になり、次のプルリクエストで同じ変更が何度も差分に出たり、競合したりするためです。
+
+### main のブランチ保護を設定する（最初に 1 回）
+
+GitHub の設定画面で行います。公開リポジトリなら無料です。
+
+1. リポジトリの **Settings** → 左の **Rules** → **Rulesets** → **New ruleset** → **New branch ruleset**
+2. 次のように設定する
+
+   | 項目 | 設定 |
+   | --- | --- |
+   | Ruleset Name | `main を保護`（任意） |
+   | Enforcement status | **Active** |
+   | Bypass list | **空のまま**（管理者の自分も含め、誰も例外にしない） |
+   | Target branches | **Add target** → **Include default branch**（main） |
+   | Restrict deletions | オン（main を消せないようにする） |
+   | Require a pull request before merging | オン。「Required approvals」は **0**（1 人で運用するため。自分のプルリクエストは自分で承認できない） |
+   | Require status checks to pass | オン。**Add checks** で次の 3 つを追加する: `型チェック・Worker のテスト・依存パッケージ`、`画面の E2E テスト（Chromium）`、`秘密情報の混入（gitleaks）` |
+   | Block force pushes | オン（履歴の書き換えを禁止する） |
+
+3. **Create** を押す
+
+設定すると、`main` への直接の push は拒否され、CI が 1 つでも失敗しているプルリクエストはマージできなくなります。
+
+> 「Add checks」の候補に出てくるのは、一度でも実行されたジョブの名前です。出てこないときは、`develop` に push して CI を 1 回動かしてから設定してください。
 
 ## 2. ジョブ①: 型チェック・Worker のテスト・依存パッケージ
 
@@ -147,7 +196,7 @@ CI は、プルリクエストのコード（他人が書いたものかもし�
 ### Dependabot のプルリクエストの扱いかた
 
 1. CI が**すべて成功**しているか確認する
-2. 成功していれば、内容（どのパッケージが、どのバージョンからどのバージョンに）を確認してマージする。メジャーバージョン（先頭の数字）が上がるものは、変更点（Release notes）にも目を通す
+2. 成功していれば、内容（どのパッケージが、どのバージョンからどのバージョンに）を確認して **develop に**マージする（main には、次の develop → main のプルリクエストでまとめて入る）。メジャーバージョン（先頭の数字）が上がるものは、変更点（Release notes）にも目を通す
 3. 失敗していれば、原因を調べる。多いのは次の 2 つ
    - **ライブラリの使いかたが変わった**（例: 型の名前が変わった）→ コードを直す
    - **他のパッケージがまだ新しいバージョンに対応していない** → 対応を待つ。必要なら `dependabot.yml` の `ignore` で一時的に除外する
@@ -214,7 +263,8 @@ docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.30.1 git /repo --redact 
 
 ## 10. CI を変更するとき
 
-- `.github/workflows/ci.yml` を変更したら、プルリクエストを作って CI が動くことを確認してからマージします
+- `.github/workflows/ci.yml` を変更したら、`develop` に push して CI が動くことを確認してから main へのプルリクエストを作ります
+- ジョブの名前（`name:`）を変えたら、ブランチ保護の「Require status checks to pass」の 3 つの名前も変えます（古い名前のままだと、マージできなくなります）
 - **権限を広げない**: `permissions` に書き込みの権限を足す、シークレットを使う、本番にアクセスする、といった変更は、セキュリティの観点で慎重に検討します（[security.md](security.md)、`/mdvault-security-review`）
 - 新しい Action を使うときは、信頼できる提供元（`actions/` や公式のもの）を選び、バージョンを指定します
 - テストを追加したら [test-scenarios.md](test-scenarios.md) の表も更新します

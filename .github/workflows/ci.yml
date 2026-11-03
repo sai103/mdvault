@@ -1,9 +1,10 @@
 # push・プルリクエストのたびに、型チェック・テスト・依存パッケージの脆弱性・秘密情報の混入を確認する
 name: CI
 
+# 作業は develop で行い、CI が通ったものだけをプルリクエストで main に入れる（docs/ci.md の「ブランチの運用」）
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
 
 # 最小権限（リポジトリの読み取りだけ）

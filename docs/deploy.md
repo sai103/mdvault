@@ -188,9 +188,10 @@ npx wrangler secret put BOOTSTRAP_SECRET
 
 ## 更新するとき
 
-GitHub のコードが新しくなったら、次の順に実行します。
+GitHub のコードが新しくなったら、次の順に実行します。デプロイには、CI を通ったものだけが入る `main` ブランチを使います（[ci.md](ci.md#ブランチの運用)）。
 
 ```bash
+git checkout main
 git pull
 npm ci
 npm run db:migrate   # 新しいテーブルの変更がなければ「No migrations to apply!」と出るだけ
