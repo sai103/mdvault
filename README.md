@@ -316,5 +316,17 @@ wrangler.jsonc          Worker・D1・R2・Cron・設定値（vars）
 
 [0BSD](LICENSE)（BSD Zero Clause License）です。著作権表示も不要で、利用・改変・再配布・販売を含めて自由に使えます。無保証です。
 
-`npm run build` で `public/build/app.js` にまとめるライブラリは、それぞれのライセンスに従います（CodeMirror・marked・SimpleWebAuthn・fflate: MIT、DOMPurify: MPL-2.0 または Apache-2.0）。
-ビルド時に、まとめたすべてのライブラリのライセンス本文を `public/build/THIRD_PARTY_LICENSES.txt` に書き出し、アプリと一緒に配信します（`/build/THIRD_PARTY_LICENSES.txt`）。
+アプリに同梱するライブラリは、それぞれのライセンスに従います。
+
+| 同梱先 | 主なライブラリ | ライセンス |
+| --- | --- | --- |
+| 画面（`public/build/app.js`） | CodeMirror・Lezer・marked・SimpleWebAuthn（browser）・fflate など | MIT |
+| | DOMPurify | MPL-2.0 または Apache-2.0 |
+| サーバー（Worker） | SimpleWebAuthn（server）・@peculiar/*・tsyringe など | MIT |
+| | asn1js | BSD-3-Clause |
+| | reflect-metadata | Apache-2.0 |
+| | tslib | 0BSD |
+
+- `npm run build`（`npm run dev`・`npm run deploy` も実行する）で、**実際に同梱されるすべてのライブラリ**（画面 18 件・サーバー 24 件、2026-11 時点）のライセンス本文を `public/build/THIRD_PARTY_LICENSES.txt` に書き出し、アプリと一緒に配信します。画面の 🎨（表示の設定）の「使用しているライブラリとライセンス」から開けます（`/build/THIRD_PARTY_LICENSES.txt`）
+- ライブラリのソースにある `@license` コメントは `public/build/app.js.LEGAL.txt` に書き出します
+- ライセンスファイルのないライブラリや、確認していない種類のライセンス（GPL など）が同梱されると、ビルドが失敗します（`scripts/licenses.mjs` の `ALLOWED`）。CI でも検出されます。新しい種類は、条件（ソースの公開義務・NOTICE の掲載など）を確認してから追加してください

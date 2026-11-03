@@ -118,7 +118,7 @@ GitHub の設定画面で行います。公開リポジトリなら無料です�
 | 2 | `npx tsc` | TypeScript の型チェック | 型が合わない（ライブラリの更新で名前が変わった など） |
 | 3 | `npm test` | Worker のテスト 231 件（vitest + Cloudflare の Workers 実行環境） | 認可・CSRF・セッション・入力の検証・リンクの書き換え・検索・バックアップなどの不具合 |
 | 4 | `npm run audit` | **本番で使う**依存パッケージに既知の脆弱性がないか（`npm audit --omit=dev`） | marked・DOMPurify・SimpleWebAuthn などに脆弱性が公表された |
-| 5 | `npm run build` | 画面のコード（`client/`）を 1 つのファイルにまとめられるか | import の間違い、存在しないファイルの参照 |
+| 5 | `npm run build` | 画面のコード（`client/`）を 1 つのファイルにまとめられるか。同梱するライブラリ（画面・サーバー）のライセンスを確認し、一覧を書き出せるか | import の間違い、存在しないファイルの参照、ライセンスファイルのないライブラリ・確認していない種類のライセンスのライブラリを追加した |
 
 ### Worker のテストのしくみ
 
@@ -247,7 +247,7 @@ CI は、プルリクエストのコード（他人が書いたものかもし�
 | ① `npx tsc` | 型のエラー | `npx tsc` |
 | ① `npm test` | サーバー側の不具合、テストの期待値が古い | `npm test` |
 | ① `npm run audit` | 本番の依存パッケージに脆弱性が公表された | `npm run audit` の表示に従い、パッケージを更新する |
-| ① `npm run build` | 画面のコードの import の間違い | `npm run build` |
+| ① `npm run build` | 画面のコードの import の間違い。または「確認していないライセンス」「ライセンスファイルがありません」 | `npm run build`。ライセンスのエラーなら、そのライブラリの条件を確認する（README の「ライセンス」） |
 | ② `npm run test:e2e` | 画面の不具合、CSP 違反、ページのエラー | `npm run test:e2e`（[local-development.md](local-development.md) の「9. テストと検査」） |
 | ③ gitleaks | 秘密情報らしき文字列 | 上の「4. 秘密情報の混入」 |
 
