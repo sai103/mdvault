@@ -42,6 +42,8 @@ git clone https://github.com/sai103/mdvault.git
 cd mdvault
 ```
 
+取得されるのは安定版の `main` ブランチです。コードを変更するときは、作業用の `develop` ブランチに切り替えてから始めます（`git checkout develop`。運用の流れは [ci.md](ci.md#ブランチの運用)）。
+
 ## 3. 依存パッケージをインストールする
 
 ```bash
