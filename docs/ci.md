@@ -209,6 +209,8 @@ CI は、プルリクエストのコード（他人が書いたものかもし�
 | npm のパッケージ | 毎週 | 同時に開くプルリクエストは 5 件まで。CodeMirror 関連（`codemirror` グループ）と開発用ツール（`dev-tools` グループ）はまとめて 1 件にする |
 | GitHub Actions | 毎月 | `actions/checkout` などのバージョン |
 
+> **Dependabot alerts も有効にしてください**（Settings → Advanced Security（または Code security）→ Dependabot alerts・Dependabot security updates。公開リポジトリは無料）。上の定期の更新とは別に、使っているパッケージに脆弱性が公表されたときにすぐ通知され、修正の更新のプルリクエストも自動で作られます。
+
 ### Dependabot のプルリクエストの扱いかた
 
 1. CI が**すべて成功**しているか確認する
