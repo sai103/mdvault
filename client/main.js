@@ -111,7 +111,7 @@ document.addEventListener("keydown", (e) => {
   else if (mod && e.key === "s") { e.preventDefault(); flushSave(); }
   else if (mod && e.key === "e") { e.preventDefault(); setMode($("#workspace").classList.contains("mode-preview") ? "edit" : "preview"); }
   else if (mod && e.shiftKey && (e.key === "f" || e.key === "F")) { e.preventDefault(); document.body.classList.add("show-sidebar"); $("#search").focus(); }
-  else if (e.altKey && e.code === "KeyN") { e.preventDefault(); newNote(); }
+  else if (e.altKey && e.code === "KeyN") { e.preventDefault(); newNote().catch((err) => alert(err.message)); }
   else if (e.altKey && e.code === "KeyD") { e.preventDefault(); openDailyNote().catch((err) => alert(err.message)); }
 });
 

@@ -309,7 +309,12 @@ export async function newNote(name, content = "") {
   if (!name?.trim()) return;
   const path = toPath(name);
   if (!state.notes.some((n) => n.path === path)) {
-    await api("PUT", "/api/note", { path, content, base_updated_at: null });
+    try {
+      await api("PUT", "/api/note", { path, content, base_updated_at: null });
+    } catch (e) {
+      // 他のデバイスで（または一覧を読み込む前に）同じ名前のノートが作られていた。上書きせず、そのノートを開く
+      if (e.status !== 409) throw e;
+    }
     await refreshAll();
   }
   navigate(path);

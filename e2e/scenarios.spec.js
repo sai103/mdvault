@@ -168,6 +168,18 @@ test("【5章】Alt+N でフォルダの中にノートを作り、自動保存�
   expect(await notePaths()).toContain("仕事/議事録.md");
 });
 
+test("【5章】他のデバイスで同じ名前のノートが先に作られていても、上書きせずにそのノートが開く", async () => {
+  // この画面のノートの一覧には、まだ「先に作られたノート」がない状態で、他のデバイスが作る
+  await apiSend("PUT", "/api/note", { path: "先に作られたノート.md", content: "他のデバイスで書いた", base_updated_at: null });
+  await page.keyboard.press("Control+p");
+  await page.fill("#switcher-input", "先に作られたノート");
+  await expect(page.locator("#switcher-list li.create")).toBeVisible(); // 一覧が古いので「作成」になる
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#title")).toHaveValue("先に作られたノート");
+  await expect.poll(editorText).toBe("他のデバイスで書いた");
+  expect((await apiGet("/api/note?path=" + encodeURIComponent("先に作られたノート.md"))).content).toBe("他のデバイスで書いた");
+});
+
 test("【5章・15章】他のデバイスと同時に編集したら確認が出て、上書きされた版は履歴から戻せる", async () => {
   await writeNote("共同編集", "最初の内容");
   // 他のデバイスが先に更新する

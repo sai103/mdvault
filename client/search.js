@@ -68,7 +68,7 @@ function draw() {
   if (raw && !state.notes.some((n) => n.path === toPath(raw))) {
     list.push(el("li", {
       className: "create" + (items.length ? "" : " active"), textContent: `＋ 「${raw}」を作成`,
-      onclick: () => { $("#switcher").close(); newNote(raw); },
+      onclick: () => { $("#switcher").close(); newNote(raw).catch((e) => alert(e.message)); },
     }));
   }
   $("#switcher-list").replaceChildren(...list);
@@ -87,7 +87,7 @@ export function setupSwitcher() {
       const q = $("#switcher-input").value.trim();
       $("#switcher").close();
       if (items.length && !(e.shiftKey && q)) navigate(items[index]);
-      else if (q) newNote(q);
+      else if (q) newNote(q).catch((e) => alert(e.message));
     }
   });
   $("#switcher").addEventListener("click", (e) => { if (e.target === $("#switcher")) $("#switcher").close(); });
