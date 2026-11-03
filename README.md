@@ -11,6 +11,7 @@ Cloudflare 上で動く、個人用の Obsidian 風 Markdown ノートアプリ�
 | [docs/manual.md](docs/manual.md) | 使いかたマニュアル（ログイン・ノートの書きかた・各機能） |
 | [docs/test-scenarios.md](docs/test-scenarios.md) | テストシナリオ（マニュアルの章と自動テストの対応、手で確認すること） |
 | [docs/ci.md](docs/ci.md) | CI（GitHub Actions）・Dependabot の解説。失敗したときの対処 |
+| [docs/github-settings.md](docs/github-settings.md) | GitHub の画面で行う設定（ブランチ保護・Secret Protection・Dependabot・メールアドレスの非公開）の一覧と手順 |
 | [docs/local-development.md](docs/local-development.md) | 自分の PC で動かす（Cloudflare のアカウント不要） |
 | [docs/deploy.md](docs/deploy.md) | Cloudflare に公開する（初めての人向け） |
 | [docs/cloudflare.md](docs/cloudflare.md) | Cloudflare 側の構成・費用・運用・復旧 |
