@@ -68,45 +68,11 @@ main ─────────────●───────────
 
 > マージは「Squash and merge」ではなく「Create a merge commit」を使います。Squash すると main と develop の履歴が別物になり、次のプルリクエストで同じ変更が何度も差分に出たり、競合したりするためです。
 
-### main のブランチ保護を設定する（最初に 1 回）
+### main のブランチ保護
 
-GitHub の設定画面で行います。公開リポジトリなら無料です。
+main には GitHub の **ブランチ保護（Ruleset「main を保護」）** を設定しています。main への直接の push は拒否され、CI の 3 つのジョブが 1 つでも失敗しているプルリクエストはマージできません。
 
-1. リポジトリの **Settings** → 左の **Rules** → **Rulesets** → **New ruleset** → **New branch ruleset**
-   - 左に「Rules」がない場合は、`https://github.com/<ユーザー名>/mdvault/settings/rules` を直接開くか、左の **Branches** → **Add branch ruleset** から同じ画面を開けます
-   - 「Settings」は、アカウントの設定（右上のアイコン → Settings）ではなく、**リポジトリの画面の上のタブ**にあるものです
-2. 次のように設定する
-
-   | 項目 | 設定 |
-   | --- | --- |
-   | Ruleset Name | `main を保護`（任意） |
-   | Enforcement status | **Active** |
-   | Bypass list | **空のまま**（管理者の自分も含め、誰も例外にしない） |
-   | Target branches | **Add target** → **Include default branch**（main） |
-   | Restrict deletions | オン（main を消せないようにする） |
-   | Require a pull request before merging | オン。「Required approvals」は **0**（1 人で運用するため。自分のプルリクエストは自分で承認できない） |
-   | Require status checks to pass | オン。**Add checks** で次の 3 つを追加する: `型チェック・Worker のテスト・依存パッケージ`、`画面の E2E テスト（Chromium）`、`秘密情報の混入（gitleaks）` |
-   | Block force pushes | オン（履歴の書き換えを禁止する） |
-
-3. **Create** を押す
-
-設定すると、`main` への直接の push は拒否され、CI が 1 つでも失敗しているプルリクエストはマージできなくなります。
-
-#### Rulesets の画面が使えない場合（従来のブランチ保護）
-
-**Settings** → 左の **Branches** → **Add classic branch protection rule**（または `https://github.com/<ユーザー名>/mdvault/settings/branch_protection_rules/new`）で、同じ内容を設定できます。
-
-| 項目 | 設定 |
-| --- | --- |
-| Branch name pattern | `main` |
-| Require a pull request before merging | オン。その下の「Require approvals」は**オフ**（1 人で運用するため） |
-| Require status checks to pass before merging | オン。検索欄に名前を入れて、上と同じ 3 つのジョブを追加する |
-| Do not allow bypassing the above settings | オン（管理者の自分にも適用する） |
-| Allow force pushes・Allow deletions | **オフのまま**（既定） |
-
-最後に **Create** を押します。
-
-> 「Add checks」の候補に出てくるのは、一度でも実行されたジョブの名前です。出てこないときは、`develop` に push して CI を 1 回動かしてから設定してください。
+設定の内容と手順は [github-settings.md](github-settings.md) の「3. main のブランチ保護」にまとめています。**ci.yml のジョブの名前（`name:`）を変えたら、ブランチ保護の必須のチェックの名前も変えてください**（古い名前のままだと、マージできなくなります）。
 
 ## 2. ジョブ①: 型チェック・Worker のテスト・依存パッケージ
 
@@ -209,7 +175,7 @@ CI は、プルリクエストのコード（他人が書いたものかもし�
 | npm のパッケージ | 毎週 | 同時に開くプルリクエストは 5 件まで。CodeMirror 関連（`codemirror` グループ）と開発用ツール（`dev-tools` グループ）はまとめて 1 件にする |
 | GitHub Actions | 毎月 | `actions/checkout` などのバージョン |
 
-> **Dependabot alerts も有効にしてください**（Settings → Advanced Security（または Code security）→ Dependabot alerts・Dependabot security updates。公開リポジトリは無料）。上の定期の更新とは別に、使っているパッケージに脆弱性が公表されたときにすぐ通知され、修正の更新のプルリクエストも自動で作られます。
+> **Dependabot alerts も有効にしてください**（公開リポジトリは無料）。上の定期の更新とは別に、使っているパッケージに脆弱性が公表されたときにすぐ通知され、修正の更新のプルリクエストも自動で作られます。設定の場所は [github-settings.md](github-settings.md) の「5. Dependabot」。
 
 ### Dependabot のプルリクエストの扱いかた
 
