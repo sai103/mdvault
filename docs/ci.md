@@ -73,6 +73,8 @@ main ─────────────●───────────
 GitHub の設定画面で行います。公開リポジトリなら無料です。
 
 1. リポジトリの **Settings** → 左の **Rules** → **Rulesets** → **New ruleset** → **New branch ruleset**
+   - 左に「Rules」がない場合は、`https://github.com/<ユーザー名>/mdvault/settings/rules` を直接開くか、左の **Branches** → **Add branch ruleset** から同じ画面を開けます
+   - 「Settings」は、アカウントの設定（右上のアイコン → Settings）ではなく、**リポジトリの画面の上のタブ**にあるものです
 2. 次のように設定する
 
    | 項目 | 設定 |
@@ -89,6 +91,20 @@ GitHub の設定画面で行います。公開リポジトリなら無料です�
 3. **Create** を押す
 
 設定すると、`main` への直接の push は拒否され、CI が 1 つでも失敗しているプルリクエストはマージできなくなります。
+
+#### Rulesets の画面が使えない場合（従来のブランチ保護）
+
+**Settings** → 左の **Branches** → **Add classic branch protection rule**（または `https://github.com/<ユーザー名>/mdvault/settings/branch_protection_rules/new`）で、同じ内容を設定できます。
+
+| 項目 | 設定 |
+| --- | --- |
+| Branch name pattern | `main` |
+| Require a pull request before merging | オン。その下の「Require approvals」は**オフ**（1 人で運用するため） |
+| Require status checks to pass before merging | オン。検索欄に名前を入れて、上と同じ 3 つのジョブを追加する |
+| Do not allow bypassing the above settings | オン（管理者の自分にも適用する） |
+| Allow force pushes・Allow deletions | **オフのまま**（既定） |
+
+最後に **Create** を押します。
 
 > 「Add checks」の候補に出てくるのは、一度でも実行されたジョブの名前です。出てこないときは、`develop` に push して CI を 1 回動かしてから設定してください。
 
